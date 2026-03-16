@@ -11,8 +11,8 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://flexfoil.dev',
-  baseUrl: '/',
+  url: 'https://foil.flexcompute.com',
+  baseUrl: '/docs/',
 
   organizationName: 'flexfoil',
   projectName: 'flexfoil',
