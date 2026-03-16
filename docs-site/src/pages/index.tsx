@@ -17,16 +17,19 @@ function HomepageHeader() {
           {siteConfig.title}
         </Heading>
         <p className="hero__subtitle">{siteConfig.tagline}</p>
+        <p style={{fontSize: '0.9rem', opacity: 0.85, marginTop: '-0.5rem'}}>
+          These docs are a work in progress and will be updated as the project evolves.
+        </p>
         <div className={styles.buttons}>
           <Link
             className="button button--secondary button--lg"
-            to="/docs/xfoil-architecture-spec">
+            to="/xfoil-architecture-spec">
             XFOIL Architecture
           </Link>
           <Link
             className="button button--secondary button--lg"
             style={{marginLeft: '1rem'}}
-            to="/docs/inviscid-implementation">
+            to="/inviscid-implementation">
             Inviscid Solver
           </Link>
         </div>
