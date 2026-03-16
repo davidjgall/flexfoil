@@ -2,6 +2,18 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## AG Grid Enterprise License
+
+For local development, create `flexfoil-ui/.env.local` with:
+
+```bash
+VITE_AG_GRID_LICENSE_KEY=your-ag-grid-enterprise-license-key
+```
+
+For GitHub Actions deployments, add the repository secret
+`AG_GRID_ENTERPRISE_LICENSE_KEY`. The workflows map that secret into the
+frontend build as `VITE_AG_GRID_LICENSE_KEY`.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
