@@ -23,7 +23,7 @@ import { useRouteUiStore } from '../stores/routeUiStore';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLayout } from '../contexts/LayoutContext';
 import type { Point, ViewportState, AirfoilPoint } from '../types';
-import { computeStreamlines, computePsiGrid, createSmokeSystem, isWasmReady, analyzeAirfoil, computeGamma, getBLVisualizationData, type BLVisualizationData, type WasmSmokeSystem } from '../lib/wasm';
+import { computeDividingStreamline, computeStreamlines, computePsiGrid, createSmokeSystem, isWasmReady, analyzeAirfoil, computeGamma, getBLVisualizationData, type BLVisualizationData, type WasmSmokeSystem } from '../lib/wasm';
 import { useMorphingAnimation, getCpColor, computeForceVectors } from '../hooks/useMorphingAnimation';
 import { generateCamberSplineCurve } from '../lib/airfoilGeometry';
 import { WebGPURenderer, checkWebGPUSupport } from '../lib/webgpu';
@@ -870,10 +870,25 @@ export function AirfoilCanvas() {
         }
       }
       
-      // ALWAYS compute the dividing streamline (ψ = ψ₀) separately
-      // This ensures we get exactly the right contour regardless of level spacing
-      const psi0Segments = marchingSquares(grid, nx, ny, psi_0, bounds[0], bounds[2], dx, dy);
-      let psi0Lines = connectSegments(psi0Segments).filter(line => line.length >= 2);
+      let psi0Lines: [number, number][][] = [];
+      const dividingResult = computeDividingStreamline(
+        panels,
+        displayAlpha,
+        reynolds,
+        bounds,
+        mach,
+        ncrit,
+        maxIterations,
+        solverMode
+      );
+
+      if (dividingResult.success && dividingResult.streamline.length >= 2) {
+        psi0Lines = [dividingResult.streamline];
+      } else {
+        // Fall back to the contour-derived branch if the streamline bracketing fails.
+        const psi0Segments = marchingSquares(grid, nx, ny, psi_0, bounds[0], bounds[2], dx, dy);
+        psi0Lines = connectSegments(psi0Segments).filter(line => line.length >= 2);
+      }
       
       // Filter out parts of dividing streamline that are inside the airfoil
       // Split lines at airfoil boundary and keep only exterior segments
@@ -897,9 +912,10 @@ export function AirfoilCanvas() {
       }
       psi0Lines = filteredPsi0Lines;
       
-      // Extrapolate dividing streamline (ψ₀) to hit the airfoil surface
-      // This extends the line segments to the airfoil boundary for a complete visualization
-      psi0Lines = extrapolateDividingStreamline(psi0Lines, panels);
+      if (!(dividingResult.success && dividingResult.streamline.length >= 2)) {
+        // Only use the contour cleanup path for the marching-squares fallback.
+        psi0Lines = extrapolateDividingStreamline(psi0Lines, panels);
+      }
       
       setPsiContours({ 
         grid, 
@@ -2201,6 +2217,56 @@ export function AirfoilCanvas() {
         return { nx: -ty / len * sign, ny: tx / len * sign };
       };
 
+      const getSurfacePointAtX = (
+        pts: { x: number[]; y: number[] },
+        xTarget: number,
+      ): { point: Point; index: number } | null => {
+        if (pts.x.length === 0) return null;
+        if (pts.x.length === 1) {
+          return { point: { x: pts.x[0], y: pts.y[0] }, index: 0 };
+        }
+
+        let closestIndex = 0;
+        let closestDistance = Math.abs(pts.x[0] - xTarget);
+        for (let i = 1; i < pts.x.length; i++) {
+          const distance = Math.abs(pts.x[i] - xTarget);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestIndex = i;
+          }
+        }
+
+        for (let i = 0; i < pts.x.length - 1; i++) {
+          const x0 = pts.x[i];
+          const x1 = pts.x[i + 1];
+          const minX = Math.min(x0, x1);
+          const maxX = Math.max(x0, x1);
+          if (xTarget < minX || xTarget > maxX) continue;
+
+          const dx = x1 - x0;
+          if (Math.abs(dx) < 1e-9) {
+            return {
+              point: { x: x0, y: 0.5 * (pts.y[i] + pts.y[i + 1]) },
+              index: i,
+            };
+          }
+
+          const t = (xTarget - x0) / dx;
+          return {
+            point: {
+              x: xTarget,
+              y: pts.y[i] + (pts.y[i + 1] - pts.y[i]) * t,
+            },
+            index: t <= 0.5 ? i : i + 1,
+          };
+        }
+
+        return {
+          point: { x: pts.x[closestIndex], y: pts.y[closestIndex] },
+          index: closestIndex,
+        };
+      };
+
       // Build surface envelope + surface points for each side
       if (showBoundaryLayer) {
         for (const surface of ['upper', 'lower'] as const) {
@@ -2259,12 +2325,21 @@ export function AirfoilCanvas() {
         }
 
         // Transition markers
-        for (const [xTr, label, color] of [
-          [blVisData.x_tr_upper, 'Tr', isDark ? '#00b4ff' : '#0078dc'],
-          [blVisData.x_tr_lower, 'Tr', isDark ? '#ff643c' : '#dc3c1e'],
-        ] as [number, string, string][]) {
+        for (const [surface, xTr, label, color, sign] of [
+          ['upper', blVisData.x_tr_upper, 'Tr', isDark ? '#00b4ff' : '#0078dc', 1],
+          ['lower', blVisData.x_tr_lower, 'Tr', isDark ? '#ff643c' : '#dc3c1e', -1],
+        ] as const) {
           if (xTr < 1 && xTr > 0) {
-            const p = toCanvas(rotatePoint({ x: xTr, y: 0 }));
+            const data = blVisData[surface];
+            const marker = getSurfacePointAtX(data, xTr);
+            if (!marker) continue;
+
+            const labelNormal = computeNormal(data, marker.index, sign);
+            const p = toCanvas(rotatePoint(marker.point));
+            const labelPoint = toCanvas(rotatePoint({
+              x: marker.point.x + labelNormal.nx * 0.03,
+              y: marker.point.y + labelNormal.ny * 0.03,
+            }));
             ctx.beginPath();
             ctx.fillStyle = color;
             ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
@@ -2272,7 +2347,7 @@ export function AirfoilCanvas() {
             ctx.fillStyle = isDark ? '#fff' : '#000';
             ctx.font = '10px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(label, p.x, p.y - 8);
+            ctx.fillText(label, labelPoint.x, labelPoint.y - 2);
           }
         }
       }

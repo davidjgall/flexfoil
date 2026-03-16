@@ -26,10 +26,11 @@ use rustfoil_core::{naca, point, Body, CubicSpline, Point};
 use rustfoil_inviscid::{FlowConditions as FaithfulFlowConditions, InviscidSolver as FaithfulInviscidSolver};
 use rustfoil_solver::inviscid::{
     FlowConditions, InviscidSolver,
-    build_streamlines, build_streamlines_viscous, StreamlineOptions, SmokeSystem, WakePanels
+    build_dividing_streamline, build_dividing_streamline_viscous, build_streamlines,
+    build_streamlines_viscous, StreamlineOptions, SmokeSystem, WakePanels,
 };
-use rustfoil_solver::inviscid::{compute_psi_grid_with_interior, compute_psi_grid_with_sources, psi_at};
-use rustfoil_xfoil::{AlphaSpec, XfoilOptions};
+use rustfoil_solver::inviscid::compute_psi_grid_with_sources;
+use rustfoil_xfoil::XfoilOptions;
 use rustfoil_xfoil::oper::solve_operating_point_from_state;
 use rustfoil_xfoil::state::XfoilState;
 use serde::{Deserialize, Serialize};
@@ -741,6 +742,20 @@ impl FaithfulFlowField {
         )
     }
 
+    fn compute_dividing_streamline(&self, options: &StreamlineOptions) -> Option<Vec<(f64, f64)>> {
+        build_dividing_streamline_viscous(
+            &self.nodes,
+            &self.gamma,
+            &self.sigma,
+            self.alpha,
+            self.v_inf,
+            self.psi_0,
+            self.wake_panels.as_ref(),
+            self.effective_body_ref(),
+            options,
+        )
+    }
+
     fn compute_psi_grid(
         &self,
         bounds: &[f64],
@@ -1271,6 +1286,17 @@ pub struct StreamlineResult {
     pub error: Option<String>,
 }
 
+/// Dividing streamline result for JS.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DividingStreamlineResult {
+    /// Streamline points for the separatrix traced by bisection.
+    pub streamline: Vec<[f64; 2]>,
+    /// Whether computation succeeded
+    pub success: bool,
+    /// Error message if any
+    pub error: Option<String>,
+}
+
 /// Extract wake source panels from the snapshot's BL data and wake geometry.
 fn build_wake_source_panels_from_snapshot(snapshot: &FaithfulSnapshot) -> Option<WakePanels> {
     let nw = snapshot.wake_x.len();
@@ -1450,6 +1476,155 @@ pub fn compute_streamlines_faithful(
         }
         Err(message) => StreamlineResult {
             streamlines: vec![],
+            success: false,
+            error: Some(message),
+        },
+    };
+    serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
+}
+
+#[wasm_bindgen]
+pub fn compute_dividing_streamline(
+    coords: &[f64],
+    alpha_deg: f64,
+    bounds: &[f64],
+) -> JsValue {
+    let result = compute_dividing_streamline_impl(coords, alpha_deg, bounds);
+    serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
+}
+
+fn compute_dividing_streamline_impl(
+    coords: &[f64],
+    alpha_deg: f64,
+    bounds: &[f64],
+) -> DividingStreamlineResult {
+    if coords.len() < 6 || coords.len() % 2 != 0 {
+        return DividingStreamlineResult {
+            streamline: vec![],
+            success: false,
+            error: Some("Invalid coordinates".to_string()),
+        };
+    }
+
+    if bounds.len() != 4 {
+        return DividingStreamlineResult {
+            streamline: vec![],
+            success: false,
+            error: Some("bounds must have 4 values: [x_min, x_max, y_min, y_max]".to_string()),
+        };
+    }
+
+    let points: Vec<Point> = coords.chunks(2).map(|c| point(c[0], c[1])).collect();
+    let body = match Body::from_points("airfoil", &points) {
+        Ok(b) => b,
+        Err(e) => {
+            return DividingStreamlineResult {
+                streamline: vec![],
+                success: false,
+                error: Some(format!("Geometry error: {}", e)),
+            };
+        }
+    };
+
+    let solver = InviscidSolver::new();
+    let flow = FlowConditions::with_alpha_deg(alpha_deg);
+    let solution = match solver.solve(&[body], &flow) {
+        Ok(s) => s,
+        Err(e) => {
+            return DividingStreamlineResult {
+                streamline: vec![],
+                success: false,
+                error: Some(format!("Solver error: {}", e)),
+            };
+        }
+    };
+
+    let options = StreamlineOptions {
+        seed_count: 33,
+        seed_x: bounds[0],
+        y_min: bounds[2],
+        y_max: bounds[3],
+        step_size: 0.01,
+        max_steps: 2000,
+        x_min: bounds[0] - 0.5,
+        x_max: bounds[1],
+    };
+
+    let Some(streamline_raw) = build_dividing_streamline(
+        &points,
+        &solution.gamma,
+        flow.alpha,
+        flow.v_inf,
+        solution.psi_0,
+        &options,
+    ) else {
+        return DividingStreamlineResult {
+            streamline: vec![],
+            success: false,
+            error: Some("Unable to bracket dividing streamline".to_string()),
+        };
+    };
+
+    DividingStreamlineResult {
+        streamline: streamline_raw
+            .into_iter()
+            .map(|(x, y)| [x, y])
+            .collect::<Vec<[f64; 2]>>(),
+        success: true,
+        error: None,
+    }
+}
+
+#[wasm_bindgen]
+pub fn compute_dividing_streamline_faithful(
+    coords: &[f64],
+    alpha_deg: f64,
+    reynolds: f64,
+    mach: f64,
+    ncrit: f64,
+    max_iterations: usize,
+    bounds: &[f64],
+) -> JsValue {
+    let result = match faithful_snapshot(coords, alpha_deg, reynolds, mach, ncrit, max_iterations) {
+        Ok(snapshot) => {
+            if bounds.len() != 4 {
+                DividingStreamlineResult {
+                    streamline: vec![],
+                    success: false,
+                    error: Some("bounds must have 4 values: [x_min, x_max, y_min, y_max]".to_string()),
+                }
+            } else {
+                let field = FaithfulFlowField::from_snapshot(&snapshot, alpha_deg);
+                let options = StreamlineOptions {
+                    seed_count: 33,
+                    seed_x: bounds[0],
+                    y_min: bounds[2],
+                    y_max: bounds[3],
+                    step_size: 0.01,
+                    max_steps: 2000,
+                    x_min: bounds[0] - 0.5,
+                    x_max: bounds[1],
+                };
+
+                match field.compute_dividing_streamline(&options) {
+                    Some(streamline_raw) => DividingStreamlineResult {
+                        streamline: streamline_raw
+                            .into_iter()
+                            .map(|(x, y)| [x, y])
+                            .collect::<Vec<[f64; 2]>>(),
+                        success: true,
+                        error: None,
+                    },
+                    None => DividingStreamlineResult {
+                        streamline: vec![],
+                        success: false,
+                        error: Some("Unable to bracket dividing streamline".to_string()),
+                    },
+                }
+            }
+        }
+        Err(message) => DividingStreamlineResult {
+            streamline: vec![],
             success: false,
             error: Some(message),
         },
@@ -2580,5 +2755,52 @@ mod tests {
         
         // Direct Rust pipeline should give Cl ≈ 0
         assert!(solution.cl.abs() < 0.0001, "Direct: Cl at α=0 should be ~0, got {}", solution.cl);
+    }
+
+    #[test]
+    fn test_faithful_dividing_streamline_hits_le_stagnation_region() {
+        let buffer_flat = generate_naca4_xfoil(12, Some(123));
+        let paneled_flat = repanel_xfoil(&buffer_flat, 160);
+        let alpha_deg = 15.0;
+
+        let snapshot = faithful_snapshot(&paneled_flat, alpha_deg, 1.0e6, 0.0, 9.0, 100)
+            .expect("faithful snapshot should solve");
+        let field = FaithfulFlowField::from_snapshot(&snapshot, alpha_deg);
+        let options = StreamlineOptions {
+            seed_count: 33,
+            seed_x: -0.5,
+            y_min: -0.5,
+            y_max: 0.5,
+            step_size: 0.01,
+            max_steps: 2000,
+            x_min: -1.0,
+            x_max: 2.0,
+        };
+
+        let streamline = field
+            .compute_dividing_streamline(&options)
+            .expect("dividing streamline should be bracketed");
+
+        let start = *streamline.first().expect("streamline start");
+        let end = *streamline.last().expect("streamline end");
+        let body_x_min = snapshot.nodes.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
+        let body_x_max = snapshot.nodes.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
+        let chord = body_x_max - body_x_min;
+
+        println!(
+            "dividing streamline start=({:.4}, {:.4}) end=({:.4}, {:.4})",
+            start.0, start.1, end.0, end.1
+        );
+
+        assert!(
+            end.0 <= body_x_min + 0.2 * chord,
+            "dividing streamline should terminate near the leading edge, got x={}",
+            end.0
+        );
+        assert!(
+            end.1.abs() <= 0.1 * chord,
+            "dividing streamline should terminate near the leading-edge stagnation region, got y={}",
+            end.1
+        );
     }
 }
