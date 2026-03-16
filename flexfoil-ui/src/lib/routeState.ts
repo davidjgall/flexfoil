@@ -22,6 +22,13 @@ import { loadFromUrl, parseNacaFromName } from './urlState';
 
 export type RouteTheme = 'dark' | 'light';
 
+interface HeavyRouteData {
+  foil?: SerializedAirfoilData;
+  spacing?: SpacingKnot[];
+  layout?: IJsonModel;
+  filters?: unknown;
+}
+
 interface SerializedAirfoilData {
   name: string;
   coordinates: AirfoilPoint[];
@@ -251,8 +258,9 @@ export function serializeRouteState(snapshot: CanonicalRouteStateSnapshot, baseP
   if (airfoil.spacingPanelMode) params.set('spacingMode', airfoil.spacingPanelMode);
   if (airfoil.sspInterpolation) params.set('sspInterp', airfoil.sspInterpolation);
   if (airfoil.sspVisualization) params.set('sspViz', airfoil.sspVisualization);
-  if (airfoil.spacingKnots?.length) params.set('spacing', encodeCompressed(airfoil.spacingKnots));
-  if (airfoil.exactGeometry) params.set('foil', encodeCompressed(airfoil.exactGeometry));
+  const heavy: HeavyRouteData = {};
+  if (airfoil.spacingKnots?.length) heavy.spacing = airfoil.spacingKnots;
+  if (airfoil.exactGeometry) heavy.foil = airfoil.exactGeometry;
 
   setBooleanParam(params, 'grid', visualization.showGrid ?? DEFAULT_VISUALIZATION_STATE.showGrid, DEFAULT_VISUALIZATION_STATE.showGrid);
   setBooleanParam(params, 'curve', visualization.showCurve ?? DEFAULT_VISUALIZATION_STATE.showCurve, DEFAULT_VISUALIZATION_STATE.showCurve);
@@ -322,17 +330,21 @@ export function serializeRouteState(snapshot: CanonicalRouteStateSnapshot, baseP
     params.set('splom', (ui.dataExplorerSplomKeys ?? DEFAULT_ROUTE_UI_STATE.dataExplorerSplomKeys).join(','));
   }
   if (ui.dataExplorerColorBy) params.set('colorBy', String(ui.dataExplorerColorBy));
-  if (ui.dataExplorerFilterModel) params.set('filters', encodeCompressed(ui.dataExplorerFilterModel));
+  if (ui.dataExplorerFilterModel) heavy.filters = ui.dataExplorerFilterModel;
   setNumberParam(params, 'cx', ui.viewport?.centerX ?? DEFAULT_ROUTE_UI_STATE.viewport.centerX, DEFAULT_ROUTE_UI_STATE.viewport.centerX);
   setNumberParam(params, 'cy', ui.viewport?.centerY ?? DEFAULT_ROUTE_UI_STATE.viewport.centerY, DEFAULT_ROUTE_UI_STATE.viewport.centerY);
   setNumberParam(params, 'zoom', ui.viewport?.zoom ?? DEFAULT_ROUTE_UI_STATE.viewport.zoom, DEFAULT_ROUTE_UI_STATE.viewport.zoom);
   if (!isDefaultLayout(ui.layoutJson ?? null)) {
-    params.set('layout', encodeCompressed(ui.layoutJson ?? defaultLayoutJson));
+    heavy.layout = ui.layoutJson ?? defaultLayoutJson;
   }
 
   const pathname = buildPathname(basePath, snapshot.panel);
   const search = params.toString();
-  return search ? `${pathname}?${search}` : pathname;
+  const hasHeavy = Object.keys(heavy).length > 0;
+  const fragment = hasHeavy ? `#h=${encodeCompressed(heavy)}` : '';
+
+  if (search) return `${pathname}?${search}${fragment}`;
+  return `${pathname}${fragment}`;
 }
 
 function buildLegacyFallback(basePath: string, hash?: string): RouteStateSnapshot | null {
@@ -404,9 +416,16 @@ export function parseRouteStateFromLocation(
   const panel = extractPanelFromPath(locationLike.pathname) ?? DEFAULT_ROUTE_UI_STATE.activePanel;
   const params = new URLSearchParams(locationLike.search);
 
-  if ([...params.keys()].length === 0) {
+  // Decode heavy data from fragment (new format) or fall back to query params (old URLs)
+  let heavy: HeavyRouteData | null = null;
+  const hash = locationLike.hash;
+  if (hash.startsWith('#h=')) {
+    heavy = decodeCompressed<HeavyRouteData>(hash.slice(3));
+  }
+
+  if ([...params.keys()].length === 0 && !heavy) {
     return (
-      buildLegacyFallback(basePath, locationLike.hash) ?? {
+      buildLegacyFallback(basePath, hash) ?? {
         basePath,
         panel,
         theme: 'dark',
@@ -420,10 +439,10 @@ export function parseRouteStateFromLocation(
     );
   }
 
-  const spacingKnots = decodeCompressed<SpacingKnot[]>(params.get('spacing')) ?? undefined;
-  const exactGeometry = decodeCompressed<SerializedAirfoilData>(params.get('foil')) ?? undefined;
-  const layoutJson = decodeCompressed<IJsonModel>(params.get('layout'));
-  const filterModel = decodeCompressed(params.get('filters'));
+  const spacingKnots = heavy?.spacing ?? decodeCompressed<SpacingKnot[]>(params.get('spacing')) ?? undefined;
+  const exactGeometry = heavy?.foil ?? decodeCompressed<SerializedAirfoilData>(params.get('foil')) ?? undefined;
+  const layoutJson = heavy?.layout ?? decodeCompressed<IJsonModel>(params.get('layout'));
+  const filterModel = heavy?.filters ?? decodeCompressed(params.get('filters'));
 
   const plotGroup = params.get('plotGroup');
   const dataView = params.get('dataView');
