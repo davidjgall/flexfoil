@@ -26,8 +26,8 @@ function HomepageHeader() {
           <Link
             className="button button--secondary button--lg"
             style={{marginLeft: '1rem'}}
-            to="/docs/rustfoil-implementation-plan">
-            Implementation Plan
+            to="/docs/inviscid-implementation">
+            Inviscid Solver
           </Link>
         </div>
       </div>
