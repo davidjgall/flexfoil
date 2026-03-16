@@ -904,6 +904,230 @@ pub fn build_streamlines(
     streamlines
 }
 
+fn build_dividing_streamline_internal<F>(
+    field: &F,
+    nodes: &[Point],
+    effective_body: Option<&[Point]>,
+    options: &StreamlineOptions,
+) -> Option<Vec<(f64, f64)>>
+where
+    F: Fn(f64, f64) -> (f64, f64),
+{
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum StreamlineSide {
+        Above,
+        Below,
+    }
+
+    #[derive(Debug, Clone)]
+    struct TraceResult {
+        seed_y: f64,
+        side: Option<StreamlineSide>,
+        closest_distance: f64,
+        streamline: Vec<(f64, f64)>,
+    }
+
+    fn point_segment_distance_sq(px: f64, py: f64, a: Point, b: Point) -> f64 {
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let len_sq = dx * dx + dy * dy;
+        if len_sq <= 1e-16 {
+            let ex = px - a.x;
+            let ey = py - a.y;
+            return ex * ex + ey * ey;
+        }
+        let t = (((px - a.x) * dx + (py - a.y) * dy) / len_sq).clamp(0.0, 1.0);
+        let qx = a.x + t * dx;
+        let qy = a.y + t * dy;
+        let ex = px - qx;
+        let ey = py - qy;
+        ex * ex + ey * ey
+    }
+
+    fn classify_streamline(
+        streamline: &[(f64, f64)],
+        nodes: &[Point],
+    ) -> Option<(Option<StreamlineSide>, f64)> {
+        if streamline.len() < 2 || nodes.len() < 2 {
+            return None;
+        }
+
+        let body_x_min = nodes.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
+        let body_x_max = nodes.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
+        let body_y_center = nodes.iter().map(|p| p.y).sum::<f64>() / nodes.len() as f64;
+        let chord = (body_x_max - body_x_min).abs().max(1e-6);
+        let x_pad = 0.05 * chord;
+        let x_ref = body_x_min + 0.65 * chord;
+
+        let mut best: Option<(f64, f64)> = None;
+        let consider_point = |best: &mut Option<(f64, f64)>, x: f64, y: f64| {
+            let mut min_dist_sq = f64::INFINITY;
+            for i in 0..nodes.len() {
+                let a = nodes[i];
+                let b = nodes[(i + 1) % nodes.len()];
+                min_dist_sq = min_dist_sq.min(point_segment_distance_sq(x, y, a, b));
+            }
+            let signed_offset = y - body_y_center;
+            if best.as_ref().is_none_or(|(best_dist_sq, _)| min_dist_sq < *best_dist_sq) {
+                *best = Some((min_dist_sq, signed_offset));
+            }
+        };
+
+        for &(x, y) in streamline {
+            if x >= body_x_min - x_pad && x <= body_x_max + x_pad {
+                consider_point(&mut best, x, y);
+            }
+        }
+        if best.is_none() {
+            for &(x, y) in streamline {
+                consider_point(&mut best, x, y);
+            }
+        }
+
+        let (dist_sq, signed_offset) = best?;
+        let closest_distance = dist_sq.sqrt();
+        let end = *streamline.last()?;
+        if end.0 <= body_x_min + 0.12 * chord && closest_distance <= 0.04 * chord {
+            let end_offset = end.1 - body_y_center;
+            if end_offset.abs() <= 0.02 * chord {
+                return Some((None, closest_distance));
+            }
+            let side = if end_offset >= 0.0 {
+                Some(StreamlineSide::Above)
+            } else {
+                Some(StreamlineSide::Below)
+            };
+            return Some((side, closest_distance));
+        }
+
+        let mut station_sample: Option<(f64, f64)> = None;
+        for &(x, y) in streamline {
+            let dx = (x - x_ref).abs();
+            if station_sample
+                .as_ref()
+                .is_none_or(|(best_dx, _)| dx < *best_dx)
+            {
+                station_sample = Some((dx, y));
+            }
+        }
+        let station_y = station_sample.map(|(_, y)| y).unwrap_or(body_y_center + signed_offset);
+        let side = if station_y >= body_y_center {
+            Some(StreamlineSide::Above)
+        } else {
+            Some(StreamlineSide::Below)
+        };
+        Some((side, closest_distance))
+    }
+
+    let bounds = (options.x_min, options.x_max, options.y_min, options.y_max);
+    let sample_count = options.seed_count.max(25).min(129);
+    let y_span = (options.y_max - options.y_min).abs();
+    let seed_tol = (1e-4 * y_span).max(1e-5);
+    let mut previous: Option<TraceResult> = None;
+
+    let trace_seed = |seed_y: f64| -> Option<TraceResult> {
+        if is_inside_airfoil(options.seed_x, seed_y, nodes)
+            || effective_body.is_some_and(|poly| is_inside_polygon(options.seed_x, seed_y, poly))
+        {
+            return None;
+        }
+
+        let streamline = integrate_streamline(
+            field,
+            options.seed_x,
+            seed_y,
+            options.step_size,
+            options.max_steps,
+            nodes,
+            bounds,
+            effective_body,
+        );
+        if streamline.len() < 2 {
+            return None;
+        }
+
+        let (side, closest_distance) = classify_streamline(&streamline, nodes)?;
+        Some(TraceResult {
+            seed_y,
+            side,
+            closest_distance,
+            streamline,
+        })
+    };
+
+    let mut bracket: Option<(TraceResult, TraceResult)> = None;
+
+    for i in 0..sample_count {
+        let t = i as f64 / (sample_count - 1).max(1) as f64;
+        let seed_y = options.y_min + t * (options.y_max - options.y_min);
+        let Some(trace) = trace_seed(seed_y) else {
+            continue;
+        };
+        if trace.side.is_none() {
+            return Some(trace.streamline);
+        }
+
+        if let Some(prev) = &previous {
+            if prev.side.is_some() && trace.side.is_some() && trace.side != prev.side {
+                bracket = Some((prev.clone(), trace));
+                break;
+            }
+        }
+
+        previous = Some(trace);
+    }
+
+    let Some((mut lo, mut hi)) = bracket else {
+        return None;
+    };
+    if lo.seed_y > hi.seed_y {
+        std::mem::swap(&mut lo, &mut hi);
+    }
+    let mut best = if lo.closest_distance <= hi.closest_distance {
+        lo.clone()
+    } else {
+        hi.clone()
+    };
+
+    for _ in 0..32 {
+        if (hi.seed_y - lo.seed_y).abs() <= seed_tol {
+            break;
+        }
+
+        let y_mid = 0.5 * (lo.seed_y + hi.seed_y);
+        let Some(mid) = trace_seed(y_mid) else {
+            break;
+        };
+        if mid.side.is_none() {
+            return Some(mid.streamline);
+        }
+        if mid.closest_distance < best.closest_distance {
+            best = mid.clone();
+        }
+
+        if mid.side == lo.side {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+
+    Some(best.streamline)
+}
+
+/// Build the streamline whose stream-function value brackets `psi_0`.
+pub fn build_dividing_streamline(
+    nodes: &[Point],
+    gamma: &[f64],
+    alpha: f64,
+    v_inf: f64,
+    _psi_0: f64,
+    options: &StreamlineOptions,
+) -> Option<Vec<(f64, f64)>> {
+    let field = |x: f64, y: f64| velocity_at(x, y, nodes, gamma, alpha, v_inf);
+    build_dividing_streamline_internal(&field, nodes, None, options)
+}
+
 /// Build streamlines using the viscous velocity field (vortex + source panels).
 pub fn build_streamlines_viscous(
     nodes: &[Point],
@@ -964,6 +1188,25 @@ pub fn build_streamlines_viscous(
     }
 
     streamlines
+}
+
+/// Build the viscous dividing streamline by bracketing `psi_0` on the inflow edge
+/// and bisecting between streamlines that lie above and below the separatrix.
+pub fn build_dividing_streamline_viscous(
+    nodes: &[Point],
+    gamma: &[f64],
+    sigma: &[f64],
+    alpha: f64,
+    v_inf: f64,
+    _psi_0: f64,
+    wake_panels: Option<&WakePanels>,
+    effective_body: Option<&[Point]>,
+    options: &StreamlineOptions,
+) -> Option<Vec<(f64, f64)>> {
+    let field = |x: f64, y: f64| {
+        velocity_at_with_sources(x, y, nodes, gamma, sigma, alpha, v_inf, wake_panels)
+    };
+    build_dividing_streamline_internal(&field, nodes, effective_body, options)
 }
 
 #[cfg(test)]
@@ -1055,5 +1298,68 @@ mod tests {
         // Check that most exterior points are finite
         let finite_count = grid.iter().filter(|&&v| v.is_finite()).count();
         assert!(finite_count > 50, "Should have many finite values outside airfoil");
+    }
+
+    #[test]
+    fn test_build_dividing_streamline_brackets_circle_stagnation() {
+        let circle = make_circle(96, 0.5);
+        let gamma = vec![0.0; circle.len()];
+        let options = StreamlineOptions {
+            seed_count: 25,
+            seed_x: -1.0,
+            y_min: -1.0,
+            y_max: 1.0,
+            step_size: 0.01,
+            max_steps: 400,
+            x_min: -1.2,
+            x_max: 1.5,
+        };
+
+        let streamline = build_dividing_streamline(&circle, &gamma, 0.0, 1.0, 0.0, &options)
+            .expect("expected dividing streamline");
+
+        let seed = streamline.first().copied().expect("seed point");
+        let last = streamline.last().copied().expect("terminal point");
+
+        assert!(seed.1.abs() < 1e-3, "seed should converge to y=0, got {}", seed.1);
+        assert!(
+            (last.0 + 0.5).abs() < 0.05,
+            "streamline should end near stagnation x=-0.5, got {}",
+            last.0
+        );
+        assert!(last.1.abs() < 0.05, "streamline should remain near y=0, got {}", last.1);
+    }
+
+    #[test]
+    fn test_build_dividing_streamline_viscous_matches_zero_source_case() {
+        let circle = make_circle(96, 0.5);
+        let gamma = vec![0.0; circle.len()];
+        let sigma = vec![0.0; circle.len()];
+        let options = StreamlineOptions {
+            seed_count: 25,
+            seed_x: -1.0,
+            y_min: -1.0,
+            y_max: 1.0,
+            step_size: 0.01,
+            max_steps: 400,
+            x_min: -1.2,
+            x_max: 1.5,
+        };
+
+        let streamline = build_dividing_streamline_viscous(
+            &circle,
+            &gamma,
+            &sigma,
+            0.0,
+            1.0,
+            0.0,
+            None,
+            None,
+            &options,
+        )
+        .expect("expected viscous dividing streamline");
+
+        let seed = streamline.first().copied().expect("seed point");
+        assert!(seed.1.abs() < 1e-3, "seed should converge to y=0, got {}", seed.1);
     }
 }

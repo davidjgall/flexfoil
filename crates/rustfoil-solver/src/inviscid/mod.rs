@@ -30,7 +30,12 @@ pub mod velocity;
 pub mod smoke;
 
 pub use error::SolverError;
-pub use velocity::{build_streamlines, build_streamlines_viscous, velocity_at, velocity_at_with_sources, is_inside_airfoil, psi_at, psi_at_with_sources, compute_psi_grid, compute_psi_grid_with_interior, compute_psi_grid_with_sources, StreamlineOptions, WakePanels};
+pub use velocity::{
+    build_dividing_streamline, build_dividing_streamline_viscous, build_streamlines,
+    build_streamlines_viscous, compute_psi_grid, compute_psi_grid_with_interior,
+    compute_psi_grid_with_sources, is_inside_airfoil, psi_at, psi_at_with_sources,
+    velocity_at, velocity_at_with_sources, StreamlineOptions, WakePanels,
+};
 pub use smoke::SmokeSystem;
 
 use nalgebra::{DMatrix, DVector};
