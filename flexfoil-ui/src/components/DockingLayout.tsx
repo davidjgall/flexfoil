@@ -29,6 +29,22 @@ interface DockingLayoutProps {
   wasmStatus: 'loading' | 'ready' | 'error';
 }
 
+function BrandFooter() {
+  return (
+    <footer className="brand-footer">
+      <span className="brand-footer__label">Powered by Flexcompute Thread</span>
+      <a
+        className="brand-footer__link"
+        href="https://www.flexcompute.com/"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Flexcompute.com
+      </a>
+    </footer>
+  );
+}
+
 function findSelectedPanelFromJson(node: any): string | null {
   if (!node || typeof node !== 'object') return null;
 
@@ -378,6 +394,7 @@ export function DockingLayout({ wasmStatus }: DockingLayoutProps) {
             onRenderTabSet={onRenderTabSet}
           />
         </div>
+        <BrandFooter />
       </div>
     </LayoutProvider>
   );

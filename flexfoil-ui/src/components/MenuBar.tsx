@@ -6,8 +6,10 @@ import { useState, useRef, useEffect } from 'react';
 import { DarkModeToggle } from './DarkModeToggle';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { useOnboarding } from '../onboarding';
+import flexcomputeLogo from '../assets/flexcompute-logo.svg';
 
 const DOCUMENTATION_URL = 'https://flexfoil.dev/';
+const FLEXCOMPUTE_URL = 'https://www.flexcompute.com/';
 
 interface PanelInfo {
   id: string;
@@ -84,167 +86,206 @@ export function MenuBar({
       style={{
         display: 'flex',
         alignItems: 'center',
-        height: '36px',
+        height: '44px',
         background: 'var(--bg-secondary)',
         borderBottom: '1px solid var(--border-color)',
         userSelect: 'none',
       }}
     >
-      {/* App title */}
-      <div
+      {/* Brand */}
+      <a
+        href={FLEXCOMPUTE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Open Flexcompute.com"
         style={{
-          padding: '0 16px',
-          fontWeight: 700,
-          fontSize: '15px',
-          background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          backgroundClip: 'text',
-          borderRight: '1px solid var(--border-color)',
-          height: '100%',
           display: 'flex',
           alignItems: 'center',
+          gap: '12px',
+          padding: '0 16px',
+          borderRight: '1px solid var(--border-color)',
+          height: '100%',
+          minWidth: '220px',
+          textDecoration: 'none',
+          background: 'var(--brand-header-surface)',
         }}
       >
-        FlexFoil
-      </div>
+        <img
+          src={flexcomputeLogo}
+          alt="Flexcompute"
+          style={{
+            height: '22px',
+            width: 'auto',
+            display: 'block',
+          }}
+        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--brand-primary)',
+            }}
+          >
+            FlexFoil
+          </span>
+          <span
+            style={{
+              fontSize: '10px',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            by Flexcompute
+          </span>
+        </div>
+      </a>
 
       {/* File Menu */}
-      <MenuButton
-        label="File"
-        isActive={activeMenu === 'file'}
-        onClick={() => toggleMenu('file')}
-      />
-      {activeMenu === 'file' && (
-        <MenuDropdown>
-          <MenuItem label="New NACA..." disabled />
-          <MenuItem label="Import .dat..." disabled />
-          <MenuDivider />
-          <MenuItem label="Export .dat..." disabled />
-          <MenuItem label="Export SVG..." disabled />
-        </MenuDropdown>
-      )}
+      <MenuGroup>
+        <MenuButton
+          label="File"
+          isActive={activeMenu === 'file'}
+          onClick={() => toggleMenu('file')}
+        />
+        {activeMenu === 'file' && (
+          <MenuDropdown>
+            <MenuItem label="New NACA..." disabled />
+            <MenuItem label="Import .dat..." disabled />
+            <MenuDivider />
+            <MenuItem label="Export .dat..." disabled />
+            <MenuItem label="Export SVG..." disabled />
+          </MenuDropdown>
+        )}
+      </MenuGroup>
 
       {/* Edit Menu */}
-      <MenuButton
-        label="Edit"
-        isActive={activeMenu === 'edit'}
-        onClick={() => toggleMenu('edit')}
-        dataTour="menu-edit"
-      />
-      {activeMenu === 'edit' && (
-        <MenuDropdown style={{ left: '120px' }}>
-          <MenuItem 
-            label="Undo" 
-            shortcut="Cmd+Z" 
-            disabled={!canUndo}
-            onClick={() => {
-              undo();
-              setActiveMenu(null);
-            }}
-          />
-          <MenuItem 
-            label="Redo" 
-            shortcut="Cmd+Shift+Z" 
-            disabled={!canRedo}
-            onClick={() => {
-              redo();
-              setActiveMenu(null);
-            }}
-          />
-        </MenuDropdown>
-      )}
+      <MenuGroup>
+        <MenuButton
+          label="Edit"
+          isActive={activeMenu === 'edit'}
+          onClick={() => toggleMenu('edit')}
+          dataTour="menu-edit"
+        />
+        {activeMenu === 'edit' && (
+          <MenuDropdown>
+            <MenuItem
+              label="Undo"
+              shortcut="Cmd+Z"
+              disabled={!canUndo}
+              onClick={() => {
+                undo();
+                setActiveMenu(null);
+              }}
+            />
+            <MenuItem
+              label="Redo"
+              shortcut="Cmd+Shift+Z"
+              disabled={!canRedo}
+              onClick={() => {
+                redo();
+                setActiveMenu(null);
+              }}
+            />
+          </MenuDropdown>
+        )}
+      </MenuGroup>
 
       {/* Window Menu */}
-      <MenuButton
-        label="Window"
-        isActive={activeMenu === 'window'}
-        onClick={() => toggleMenu('window')}
-        dataTour="menu-window"
-      />
-      {activeMenu === 'window' && (
-        <MenuDropdown style={{ left: '168px' }}>
-          <div
-            style={{
-              padding: '4px 12px',
-              fontSize: '11px',
-              fontWeight: 600,
-              color: 'var(--text-muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}
-          >
-            Panels
-          </div>
-          {panels.map((panel) => (
-            <MenuItem
-              key={panel.id}
-              label={panel.name}
-              checked={isPanelVisible(panel.id)}
-              onClick={() => handleTogglePanel(panel.id)}
-            />
-          ))}
-          <MenuDivider />
-          <MenuItem label="Reset Layout" onClick={handleResetLayout} />
-        </MenuDropdown>
-      )}
+      <MenuGroup>
+        <MenuButton
+          label="Window"
+          isActive={activeMenu === 'window'}
+          onClick={() => toggleMenu('window')}
+          dataTour="menu-window"
+        />
+        {activeMenu === 'window' && (
+          <MenuDropdown>
+            <div
+              style={{
+                padding: '4px 12px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: 'var(--text-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+              }}
+            >
+              Panels
+            </div>
+            {panels.map((panel) => (
+              <MenuItem
+                key={panel.id}
+                label={panel.name}
+                checked={isPanelVisible(panel.id)}
+                onClick={() => handleTogglePanel(panel.id)}
+              />
+            ))}
+            <MenuDivider />
+            <MenuItem label="Reset Layout" onClick={handleResetLayout} />
+          </MenuDropdown>
+        )}
+      </MenuGroup>
 
       {/* Help Menu */}
-      <MenuButton
-        label="Help"
-        isActive={activeMenu === 'help'}
-        onClick={() => toggleMenu('help')}
-        dataTour="menu-help"
-      />
-      {activeMenu === 'help' && (
-        <MenuDropdown style={{ left: '232px' }}>
-          <div
-            style={{
-              padding: '4px 12px',
-              fontSize: '11px',
-              fontWeight: 600,
-              color: 'var(--text-muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}
-          >
-            Tutorials
-          </div>
-          <MenuItem label="Documentation" onClick={openDocumentation} />
-          <MenuDivider />
-          <MenuItem
-            label="Welcome Tour"
-            onClick={() => {
-              startTour('welcome');
-              setActiveMenu(null);
-            }}
-          />
-          <MenuItem
-            label="Airfoil Editing Guide"
-            onClick={() => {
-              startTour('airfoilEditing');
-              setActiveMenu(null);
-            }}
-          />
-          <MenuItem
-            label="Solving Guide"
-            onClick={() => {
-              startTour('solving');
-              setActiveMenu(null);
-            }}
-          />
-          <MenuDivider />
-          <MenuItem
-            label="Reset Tutorial Progress"
-            onClick={() => {
-              resetAllTours();
-              setActiveMenu(null);
-            }}
-          />
-          <MenuDivider />
-          <MenuItem label="About FlexFoil" disabled />
-        </MenuDropdown>
-      )}
+      <MenuGroup>
+        <MenuButton
+          label="Help"
+          isActive={activeMenu === 'help'}
+          onClick={() => toggleMenu('help')}
+          dataTour="menu-help"
+        />
+        {activeMenu === 'help' && (
+          <MenuDropdown>
+            <div
+              style={{
+                padding: '4px 12px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: 'var(--text-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+              }}
+            >
+              Tutorials
+            </div>
+            <MenuItem label="Documentation" onClick={openDocumentation} />
+            <MenuDivider />
+            <MenuItem
+              label="Welcome Tour"
+              onClick={() => {
+                startTour('welcome');
+                setActiveMenu(null);
+              }}
+            />
+            <MenuItem
+              label="Airfoil Editing Guide"
+              onClick={() => {
+                startTour('airfoilEditing');
+                setActiveMenu(null);
+              }}
+            />
+            <MenuItem
+              label="Solving Guide"
+              onClick={() => {
+                startTour('solving');
+                setActiveMenu(null);
+              }}
+            />
+            <MenuDivider />
+            <MenuItem
+              label="Reset Tutorial Progress"
+              onClick={() => {
+                resetAllTours();
+                setActiveMenu(null);
+              }}
+            />
+            <MenuDivider />
+            <MenuItem label="About Flexcompute" disabled />
+          </MenuDropdown>
+        )}
+      </MenuGroup>
 
       <MenuButton
         label="Docs"
@@ -324,12 +365,28 @@ function MenuButton({
         border: 'none',
         color: 'var(--text-secondary)',
         fontSize: '13px',
+        fontWeight: 500,
         cursor: 'pointer',
         transition: 'background 0.15s ease',
       }}
     >
       {label}
     </button>
+  );
+}
+
+function MenuGroup({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        position: 'relative',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'stretch',
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -345,13 +402,13 @@ function MenuDropdown({
     <div
       style={{
         position: 'absolute',
-        top: '36px',
-        left: '80px',
+        top: '100%',
+        left: 0,
         minWidth: '180px',
         background: 'var(--bg-secondary)',
         border: '1px solid var(--border-color)',
         borderRadius: '6px',
-        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)',
+        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.22)',
         zIndex: 1000,
         padding: '4px 0',
         ...style,

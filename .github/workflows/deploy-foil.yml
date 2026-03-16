@@ -94,18 +94,18 @@ jobs:
             --recursive --exclude "*" --include "*.html" \
             --metadata-directive REPLACE \
             --cache-control 'max-age=0, no-cache, no-store, must-revalidate' \
-            --metadata "deploy-sha1=${GITHUB_SHA},x-frame-options=SAMEORIGIN"
+            --metadata "deploy-sha1=${GITHUB_SHA}"
 
           aws s3 cp . "s3://${S3_BUCKET}${S3_DEPLOY_PATH}" \
             --recursive --exclude "*" --include "*.json" \
             --metadata-directive REPLACE \
             --cache-control 'max-age=300, must-revalidate' \
-            --metadata "deploy-sha1=${GITHUB_SHA},x-frame-options=SAMEORIGIN"
+            --metadata "deploy-sha1=${GITHUB_SHA}"
 
           aws s3 cp . "s3://${S3_BUCKET}${S3_DEPLOY_PATH}" \
             --recursive --exclude "*.html" --exclude "*.json" --exclude "*.map" \
             --cache-control 'max-age=31536000, immutable' \
-            --metadata "deploy-sha1=${GITHUB_SHA},x-frame-options=SAMEORIGIN"
+            --metadata "deploy-sha1=${GITHUB_SHA}"
 
       - name: Invalidate CloudFront
         run: |

@@ -164,19 +164,25 @@ export const useRouteUiStore = create<RouteUiStore>((set) => ({
       activePanelRevision: state.activePanelRevision + 1,
     })),
   hydrateFromRoute: (value) =>
-    set((state) => ({
-      ...state,
-      ...value,
-      viewport: value.viewport
-        ? {
-            centerX: value.viewport.centerX ?? state.viewport.centerX,
-            centerY: value.viewport.centerY ?? state.viewport.centerY,
-            zoom: value.viewport.zoom ?? state.viewport.zoom,
-          }
-        : state.viewport,
-      layoutJson: value.layoutJson ?? state.layoutJson,
-      viewportRevision: state.viewportRevision + (value.viewport ? 1 : 0),
-      layoutRevision: state.layoutRevision + (value.layoutJson !== undefined ? 1 : 0),
-      activePanelRevision: state.activePanelRevision + (value.activePanel ? 1 : 0),
-    })),
+    set((state) => {
+      const definedRouteState = Object.fromEntries(
+        Object.entries(value).filter(([key, entryValue]) => key !== 'viewport' && entryValue !== undefined),
+      ) as Partial<RouteUiSnapshot>;
+
+      return {
+        ...state,
+        ...definedRouteState,
+        viewport: value.viewport
+          ? {
+              centerX: value.viewport.centerX ?? state.viewport.centerX,
+              centerY: value.viewport.centerY ?? state.viewport.centerY,
+              zoom: value.viewport.zoom ?? state.viewport.zoom,
+            }
+          : state.viewport,
+        layoutJson: value.layoutJson !== undefined ? value.layoutJson : state.layoutJson,
+        viewportRevision: state.viewportRevision + (value.viewport ? 1 : 0),
+        layoutRevision: state.layoutRevision + (value.layoutJson !== undefined ? 1 : 0),
+        activePanelRevision: state.activePanelRevision + (value.activePanel ? 1 : 0),
+      };
+    }),
 }));

@@ -1,32 +1,63 @@
 /* FlexFoil UI - Theme Variables */
 
+@font-face {
+  font-family: 'TWK Everett';
+  src: url('https://www.flexcompute.com/assets/css/font/twk-everett-updated/TWKEverett-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TWK Everett';
+  src: url('https://www.flexcompute.com/assets/css/font/twk-everett-updated/TWKEverett-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TWK Everett';
+  src: url('https://www.flexcompute.com/assets/css/font/twk-everett-updated/TWKEverett-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root,
 [data-theme="dark"] {
   /* Colors - Dark Theme */
-  --bg-primary: #0f0f0f;
-  --bg-secondary: #1a1a1a;
-  --bg-tertiary: #242424;
-  --bg-hover: #2a2a2a;
-  
-  --text-primary: #e0e0e0;
-  --text-secondary: #a0a0a0;
-  --text-muted: #666666;
-  
-  --accent-primary: #00d4aa;
-  --accent-secondary: #0099ff;
-  --accent-warning: #ffaa00;
-  --accent-danger: #ff4444;
-  
-  --border-color: #333333;
-  --border-light: #444444;
+  --brand-primary: #00643c;
+  --brand-secondary: #c43959;
+  --brand-ink: #1a1c21;
+  --brand-surface: #f5f5f5;
+  --brand-header-surface: rgba(245, 245, 245, 0.96);
+  --brand-footer-surface: #121712;
+
+  --bg-primary: #0d1110;
+  --bg-secondary: #131916;
+  --bg-tertiary: #1c241f;
+  --bg-hover: #223127;
+
+  --text-primary: #f5f5f1;
+  --text-secondary: #bcc3bb;
+  --text-muted: #7f8a80;
+
+  --accent-primary: var(--brand-primary);
+  --accent-secondary: var(--brand-secondary);
+  --accent-warning: #c0872f;
+  --accent-danger: #cf4e4e;
+
+  --border-color: #2c352e;
+  --border-light: #3a463d;
   
   /* Airfoil colors */
-  --foil-line: #00d4aa;
+  --foil-line: var(--brand-primary);
   --foil-point: #ffffff;
-  --foil-point-selected: #ffaa00;
-  --foil-control: #0099ff;
-  --foil-handle: #ff6666;
-  --foil-grid: #333333;
+  --foil-point-selected: #d0983a;
+  --foil-control: #79aeb6;
+  --foil-handle: #e16b7f;
+  --foil-grid: #334036;
   
   /* Spacing */
   --panel-padding: 12px;
@@ -36,35 +67,44 @@
   
   /* Typography */
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'TWK Everett', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 [data-theme="light"] {
   /* Colors - Light Theme */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f8f9fa;
-  --bg-tertiary: #e9ecef;
-  --bg-hover: #dee2e6;
-  
-  --text-primary: #212529;
-  --text-secondary: #495057;
-  --text-muted: #868e96;
-  
-  --accent-primary: #00a88a;
-  --accent-secondary: #0077cc;
-  --accent-warning: #e69500;
-  --accent-danger: #dc3545;
-  
-  --border-color: #dee2e6;
-  --border-light: #ced4da;
+  --brand-primary: #00643c;
+  --brand-secondary: #c43959;
+  --brand-ink: #1a1c21;
+  --brand-surface: #ffffff;
+  --brand-header-surface: #ffffff;
+  --brand-footer-surface: #f2f5f1;
+
+  --bg-primary: #fbfaf8;
+  --bg-secondary: #f4f4ef;
+  --bg-tertiary: #eaede5;
+  --bg-hover: #e1e7dd;
+
+  --text-primary: #1a1c21;
+  --text-secondary: #44514a;
+  --text-muted: #788379;
+
+  --accent-primary: var(--brand-primary);
+  --accent-secondary: var(--brand-secondary);
+  --accent-warning: #b9781f;
+  --accent-danger: #c74c57;
+
+  --border-color: #d2dbd0;
+  --border-light: #c1ccc1;
   
   /* Airfoil colors - adjusted for light bg */
-  --foil-line: #00a88a;
-  --foil-point: #212529;
-  --foil-point-selected: #e69500;
-  --foil-control: #0077cc;
-  --foil-handle: #dc3545;
-  --foil-grid: #dee2e6;
+  --foil-line: var(--brand-primary);
+  --foil-point: #1a1c21;
+  --foil-point-selected: #b9781f;
+  --foil-control: #3e7d88;
+  --foil-handle: #c74c57;
+  --foil-grid: #d2dbd0;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: 'TWK Everett', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 * {
@@ -88,6 +128,47 @@ html, body, #root {
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+.brand-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 0 14px;
+  background: var(--brand-footer-surface);
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.brand-footer__label {
+  color: var(--brand-primary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.brand-footer__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid rgba(0, 100, 60, 0.25);
+  border-radius: 999px;
+  color: var(--brand-primary);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  background: rgba(0, 100, 60, 0.08);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.brand-footer__link:hover {
+  background: rgba(0, 100, 60, 0.14);
+  border-color: rgba(0, 100, 60, 0.4);
 }
 
 .app-header {
