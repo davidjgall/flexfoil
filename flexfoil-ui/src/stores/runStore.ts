@@ -20,12 +20,15 @@ import {
   type RunInsert,
 } from '../lib/runDatabase';
 import { computeAirfoilHash } from '../lib/airfoilHash';
+import { useAirfoilStore } from './airfoilStore';
 
 interface RunStoreState {
   /** All rows from the database, newest first */
   allRuns: RunRow[];
   /** Subset filtered by the AG Grid (defaults to allRuns) */
   filteredRuns: RunRow[];
+  /** Most recently restored historical run */
+  selectedRunId: number | null;
   /** Whether the DB has been initialised */
   ready: boolean;
 
@@ -50,6 +53,8 @@ interface RunStoreState {
   ) => RunRow | null;
   /** Compute a deterministic hash for a set of panels */
   hashPanels: (panels: { x: number; y: number }[]) => Promise<string>;
+  /** Restore a persisted run snapshot into the shared airfoil state */
+  restoreRunById: (id: number) => boolean;
 
   /** Delete every row and refresh */
   clearAll: () => Promise<void>;
@@ -62,6 +67,7 @@ interface RunStoreState {
 export const useRunStore = create<RunStoreState>()((set, get) => ({
   allRuns: [],
   filteredRuns: [],
+  selectedRunId: null,
   ready: false,
 
   init: async () => {
@@ -98,10 +104,17 @@ export const useRunStore = create<RunStoreState>()((set, get) => ({
   },
 
   hashPanels: (panels) => computeAirfoilHash(panels),
+  restoreRunById: (id) => {
+    const run = get().allRuns.find((row) => row.id === id);
+    if (!run?.geometry_snapshot) return false;
+    useAirfoilStore.getState().restoreRunSnapshot(run);
+    set({ selectedRunId: id });
+    return true;
+  },
 
   clearAll: async () => {
     await clearAllRuns();
-    set({ allRuns: [], filteredRuns: [] });
+    set({ allRuns: [], filteredRuns: [], selectedRunId: null });
   },
 
   exportDb: () => exportDatabase(),

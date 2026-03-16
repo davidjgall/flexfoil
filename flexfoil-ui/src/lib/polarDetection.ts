@@ -7,12 +7,21 @@
  */
 
 import type { RunRow } from '../types';
+import { AUTO_GROUP_INVARIANT_FIELDS } from './plotFields';
+import { valueKey } from './plotStyling';
 
 export interface PolarGroup {
   key: string;
   label: string;
   rows: RunRow[];
   isSinglePoint: boolean;
+}
+
+export interface DetectGroupOptions {
+  sortField?: keyof RunRow;
+  plottedFields?: (keyof RunRow)[];
+  encodingFields?: Array<keyof RunRow | ''>;
+  invariantFields?: (keyof RunRow)[];
 }
 
 // ─── Reynolds formatting ────────────────────────────────────────────
@@ -37,30 +46,7 @@ export function splitByAlphaGap(
   rows: RunRow[],
   gapMultiplier = 3,
 ): RunRow[][] {
-  if (rows.length < 3) return [rows];
-
-  const sorted = [...rows].sort((a, b) => a.alpha - b.alpha);
-  const steps: number[] = [];
-  for (let i = 1; i < sorted.length; i++) {
-    steps.push(sorted[i].alpha - sorted[i - 1].alpha);
-  }
-
-  const medianStep = median(steps);
-  if (medianStep <= 0) return [sorted];
-
-  const threshold = medianStep * gapMultiplier;
-  const segments: RunRow[][] = [[sorted[0]]];
-
-  for (let i = 1; i < sorted.length; i++) {
-    const gap = sorted[i].alpha - sorted[i - 1].alpha;
-    if (gap > threshold) {
-      segments.push([sorted[i]]);
-    } else {
-      segments[segments.length - 1].push(sorted[i]);
-    }
-  }
-
-  return segments.length > 1 ? segments : [sorted];
+  return splitByNumericGap(rows, 'alpha', gapMultiplier);
 }
 
 function median(values: number[]): number {
@@ -73,10 +59,14 @@ function median(values: number[]): number {
 // ─── Smart label generation ─────────────────────────────────────────
 
 interface GroupMeta {
-  airfoilName: string;
+  airfoil_name: string;
+  alpha: number;
   reynolds: number;
   mach: number;
   ncrit: number;
+  n_panels: number;
+  max_iter: number;
+  solver_mode: RunRow['solver_mode'];
 }
 
 /**
@@ -86,34 +76,28 @@ interface GroupMeta {
  */
 function buildSmartLabels(groups: GroupMeta[]): string[] {
   if (groups.length === 0) return [];
-  if (groups.length === 1) return [groups[0].airfoilName];
+  if (groups.length === 1) return [groups[0].airfoil_name];
 
-  const uniqueAirfoils = new Set(groups.map(g => g.airfoilName));
-  const uniqueRe = new Set(groups.map(g => g.reynolds));
-  const uniqueMach = new Set(groups.map(g => g.mach));
-  const uniqueNcrit = new Set(groups.map(g => g.ncrit));
+  const labelFields: Array<keyof GroupMeta> = [
+    'airfoil_name',
+    'alpha',
+    'reynolds',
+    'mach',
+    'ncrit',
+    'n_panels',
+    'max_iter',
+    'solver_mode',
+  ];
+  const varyingFields = labelFields.filter((field) => (
+    new Set(groups.map((group) => valueKey(group[field]))).size > 1
+  ));
 
-  const showAirfoil = uniqueAirfoils.size > 1;
-  const showRe = uniqueRe.size > 1;
-  const showMach = uniqueMach.size > 1;
-  const showNcrit = uniqueNcrit.size > 1;
-
-  // If nothing varies (identical groups), fall back to airfoil name
-  if (!showAirfoil && !showRe && !showMach && !showNcrit) {
-    return groups.map(g => g.airfoilName);
-  }
-
-  return groups.map(g => {
-    const parts: string[] = [];
-    if (showAirfoil) parts.push(g.airfoilName);
-    if (showRe) parts.push(`Re=${formatReynolds(g.reynolds)}`);
-    if (showMach) parts.push(`M=${g.mach}`);
-    if (showNcrit) parts.push(`Nc=${g.ncrit}`);
-
-    if (parts.length === 0) return g.airfoilName;
-    if (showAirfoil && parts.length > 1) {
-      const name = parts.shift()!;
-      return `${name} @ ${parts.join(', ')}`;
+  return groups.map((group) => {
+    const parts = varyingFields.map((field) => formatLabelPart(field, group[field]));
+    if (parts.length === 0) return group.airfoil_name;
+    if (varyingFields[0] === 'airfoil_name' && parts.length > 1) {
+      const [name, ...rest] = parts;
+      return `${name} @ ${rest.join(', ')}`;
     }
     return parts.join(', ');
   });
@@ -121,50 +105,138 @@ function buildSmartLabels(groups: GroupMeta[]): string[] {
 
 // ─── Main detection ─────────────────────────────────────────────────
 
-function polarCompoundKey(row: RunRow): string {
-  return `${row.airfoil_hash}|${row.reynolds}|${row.mach}|${row.ncrit}`;
+export function splitByNumericGap(
+  rows: RunRow[],
+  field: keyof RunRow,
+  gapMultiplier = 3,
+): RunRow[][] {
+  if (rows.length < 3) return [sortRows(rows, field)];
+
+  const sorted = sortRows(rows, field);
+  const steps: number[] = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1][field];
+    const current = sorted[i][field];
+    if (typeof prev !== 'number' || typeof current !== 'number') {
+      return [sorted];
+    }
+    steps.push(current - prev);
+  }
+
+  const medianStep = median(steps);
+  if (medianStep <= 0) return [sorted];
+
+  const threshold = medianStep * gapMultiplier;
+  const segments: RunRow[][] = [[sorted[0]]];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1][field];
+    const current = sorted[i][field];
+    if (typeof prev !== 'number' || typeof current !== 'number') {
+      segments[segments.length - 1].push(sorted[i]);
+      continue;
+    }
+    const gap = current - prev;
+    if (gap > threshold) {
+      segments.push([sorted[i]]);
+    } else {
+      segments[segments.length - 1].push(sorted[i]);
+    }
+  }
+
+  return segments.length > 1 ? segments : [sorted];
+}
+
+function sortRows(rows: RunRow[], field: keyof RunRow): RunRow[] {
+  return [...rows].sort((a, b) => {
+    const va = a[field];
+    const vb = b[field];
+    if (typeof va === 'number' && typeof vb === 'number') return va - vb;
+    return String(va ?? '').localeCompare(String(vb ?? ''));
+  });
+}
+
+function buildInvariantKey(row: RunRow, invariantFields: (keyof RunRow)[]): string {
+  return invariantFields
+    .map((field) => `${String(field)}=${valueKey(row[field])}`)
+    .join('|');
+}
+
+function buildGroupMeta(row: RunRow): GroupMeta {
+  return {
+    airfoil_name: row.airfoil_name,
+    alpha: row.alpha,
+    reynolds: row.reynolds,
+    mach: row.mach,
+    ncrit: row.ncrit,
+    n_panels: row.n_panels,
+    max_iter: row.max_iter,
+    solver_mode: row.solver_mode,
+  };
+}
+
+function formatLabelPart(field: keyof GroupMeta, value: GroupMeta[keyof GroupMeta]): string {
+  switch (field) {
+    case 'airfoil_name':
+      return String(value);
+    case 'alpha':
+      return `α=${typeof value === 'number' ? value : String(value)}`;
+    case 'reynolds':
+      return `Re=${typeof value === 'number' ? formatReynolds(value) : String(value)}`;
+    case 'mach':
+      return `M=${String(value)}`;
+    case 'ncrit':
+      return `Nc=${String(value)}`;
+    case 'n_panels':
+      return `Panels=${String(value)}`;
+    case 'max_iter':
+      return `Iter=${String(value)}`;
+    case 'solver_mode':
+      return value === 'inviscid' ? 'Inviscid' : 'Viscous';
+    default:
+      return String(value);
+  }
 }
 
 /**
  * Detect polar groups from a flat array of RunRows.
  *
- * 1. Group by compound key (airfoil_hash, Re, Mach, Ncrit)
- * 2. Within each group, sort by `sortField` (default: alpha)
- * 3. Split on alpha discontinuities
- * 4. Generate smart labels
+ * 1. Group by invariant run configuration fields, excluding active plot encodings
+ * 2. Within each group, sort by `sortField`
+ * 3. Split on large gaps in the sorted field
+ * 4. Generate labels from only the fields that vary across the resulting groups
  */
-export function detectPolarGroups(
+export function detectSmartRunGroups(
   rows: RunRow[],
-  sortField: keyof RunRow = 'alpha',
+  options: DetectGroupOptions = {},
 ): PolarGroup[] {
   if (rows.length === 0) return [];
 
-  // Step 1: group by compound key
+  const {
+    sortField = 'alpha',
+    plottedFields = [],
+    encodingFields = [],
+    invariantFields = AUTO_GROUP_INVARIANT_FIELDS,
+  } = options;
+  const excludedFields = new Set<keyof RunRow>([
+    ...plottedFields,
+    ...encodingFields.filter((field): field is keyof RunRow => Boolean(field)),
+  ]);
+  const groupFields = invariantFields.filter((field) => !excludedFields.has(field));
+
   const compoundGroups = new Map<string, RunRow[]>();
   for (const row of rows) {
-    const key = polarCompoundKey(row);
+    const key = buildInvariantKey(row, groupFields);
     if (!compoundGroups.has(key)) compoundGroups.set(key, []);
     compoundGroups.get(key)!.push(row);
   }
 
-  // Step 2: sort each group, split on alpha gaps
   const allSegments: { key: string; meta: GroupMeta; rows: RunRow[]; subIndex: number; totalSubs: number }[] = [];
 
-  for (const [key, groupRows] of compoundGroups) {
-    const sorted = [...groupRows].sort((a, b) => {
-      const va = a[sortField];
-      const vb = b[sortField];
-      if (typeof va === 'number' && typeof vb === 'number') return va - vb;
-      return 0;
-    });
-
-    const segments = splitByAlphaGap(sorted);
-    const meta: GroupMeta = {
-      airfoilName: sorted[0].airfoil_name,
-      reynolds: sorted[0].reynolds,
-      mach: sorted[0].mach,
-      ncrit: sorted[0].ncrit,
-    };
+  for (const [key, groupRows] of [...compoundGroups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const sorted = sortRows(groupRows, sortField);
+    const segments = splitByNumericGap(sorted, sortField);
+    const meta = buildGroupMeta(sorted[0]);
 
     for (let i = 0; i < segments.length; i++) {
       allSegments.push({
@@ -177,7 +249,6 @@ export function detectPolarGroups(
     }
   }
 
-  // Step 3: build smart labels
   const labels = buildSmartLabels(allSegments.map(s => s.meta));
 
   return allSegments.map((seg, i) => {
@@ -192,4 +263,11 @@ export function detectPolarGroups(
       isSinglePoint: seg.rows.length === 1,
     };
   });
+}
+
+export function detectPolarGroups(
+  rows: RunRow[],
+  sortField: keyof RunRow = 'alpha',
+): PolarGroup[] {
+  return detectSmartRunGroups(rows, { sortField, plottedFields: [sortField] });
 }

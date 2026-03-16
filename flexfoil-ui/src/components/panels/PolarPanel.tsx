@@ -8,7 +8,10 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { useAirfoilStore } from '../../stores/airfoilStore';
 import { useRouteUiStore } from '../../stores/routeUiStore';
+import { colorForKey } from '../../lib/plotStyling';
 import type { AxisVariable, PolarPoint } from '../../types';
+
+const PLOT_MARGIN = { top: 20, right: 20, bottom: 40, left: 50 };
 
 const AXIS_LABELS: Record<AxisVariable, string> = {
   alpha: 'α (deg)',
@@ -16,17 +19,6 @@ const AXIS_LABELS: Record<AxisVariable, string> = {
   cd: 'Cd',
   cm: 'Cm',
 };
-
-const SERIES_COLORS = [
-  '#00d4aa', // teal
-  '#ff6b6b', // coral
-  '#ffd93d', // amber
-  '#6bcb77', // green
-  '#4d96ff', // blue
-  '#ff6fff', // pink
-  '#ffb347', // orange
-  '#87ceeb', // sky
-];
 
 function getValue(point: PolarPoint, variable: AxisVariable): number {
   return point[variable] ?? 0;
@@ -68,8 +60,6 @@ export function PolarPanel() {
   const setYAxis = useRouteUiStore((state) => state.setPolarYAxis);
   const [canvasSize, setCanvasSize] = useState({ width: 400, height: 300 });
   
-  const margin = { top: 20, right: 20, bottom: 40, left: 50 };
-
   const totalPoints = useMemo(
     () => polarData.reduce((n, s) => n + s.points.length, 0),
     [polarData],
@@ -99,17 +89,17 @@ export function PolarPanel() {
     if (!ctx) return;
     
     const { width, height } = canvasSize;
-    const plotWidth = width - margin.left - margin.right;
-    const plotHeight = height - margin.top - margin.bottom;
+    const plotWidth = width - PLOT_MARGIN.left - PLOT_MARGIN.right;
+    const plotHeight = height - PLOT_MARGIN.top - PLOT_MARGIN.bottom;
     
     ctx.fillStyle = getComputedStyle(document.documentElement)
       .getPropertyValue('--bg-primary').trim() || '#0f0f0f';
     ctx.fillRect(0, 0, width, height);
     
     const toCanvasX = (x: number) =>
-      margin.left + ((x - xBounds[0]) / (xBounds[1] - xBounds[0])) * plotWidth;
+      PLOT_MARGIN.left + ((x - xBounds[0]) / (xBounds[1] - xBounds[0])) * plotWidth;
     const toCanvasY = (y: number) =>
-      margin.top + (1 - (y - yBounds[0]) / (yBounds[1] - yBounds[0])) * plotHeight;
+      PLOT_MARGIN.top + (1 - (y - yBounds[0]) / (yBounds[1] - yBounds[0])) * plotHeight;
     
     // Grid
     ctx.strokeStyle = getComputedStyle(document.documentElement)
@@ -122,15 +112,15 @@ export function PolarPanel() {
     for (const x of xTicks) {
       const cx = toCanvasX(x);
       ctx.beginPath();
-      ctx.moveTo(cx, margin.top);
-      ctx.lineTo(cx, height - margin.bottom);
+      ctx.moveTo(cx, PLOT_MARGIN.top);
+      ctx.lineTo(cx, height - PLOT_MARGIN.bottom);
       ctx.stroke();
     }
     for (const y of yTicks) {
       const cy = toCanvasY(y);
       ctx.beginPath();
-      ctx.moveTo(margin.left, cy);
-      ctx.lineTo(width - margin.right, cy);
+      ctx.moveTo(PLOT_MARGIN.left, cy);
+      ctx.lineTo(width - PLOT_MARGIN.right, cy);
       ctx.stroke();
     }
     
@@ -140,12 +130,12 @@ export function PolarPanel() {
     ctx.globalAlpha = 0.3;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(margin.left, height - margin.bottom);
-    ctx.lineTo(width - margin.right, height - margin.bottom);
+    ctx.moveTo(PLOT_MARGIN.left, height - PLOT_MARGIN.bottom);
+    ctx.lineTo(width - PLOT_MARGIN.right, height - PLOT_MARGIN.bottom);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(margin.left, margin.top);
-    ctx.lineTo(margin.left, height - margin.bottom);
+    ctx.moveTo(PLOT_MARGIN.left, PLOT_MARGIN.top);
+    ctx.lineTo(PLOT_MARGIN.left, height - PLOT_MARGIN.bottom);
     ctx.stroke();
     ctx.globalAlpha = 1;
     
@@ -155,12 +145,12 @@ export function PolarPanel() {
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
     for (const x of xTicks) {
-      ctx.fillText(x.toFixed(1), toCanvasX(x), height - margin.bottom + 15);
+      ctx.fillText(x.toFixed(1), toCanvasX(x), height - PLOT_MARGIN.bottom + 15);
     }
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     for (const y of yTicks) {
-      ctx.fillText(y.toFixed(2), margin.left - 5, toCanvasY(y));
+      ctx.fillText(y.toFixed(2), PLOT_MARGIN.left - 5, toCanvasY(y));
     }
     
     // Axis labels
@@ -179,8 +169,8 @@ export function PolarPanel() {
     
     // Draw each series
     if (totalPoints > 0) {
-      polarData.forEach((series, si) => {
-        const color = SERIES_COLORS[si % SERIES_COLORS.length];
+      polarData.forEach((series) => {
+        const color = colorForKey(series.key);
         const pts = series.points;
         if (pts.length === 0) return;
 
@@ -217,7 +207,7 @@ export function PolarPanel() {
       ctx.textBaseline = 'middle';
       ctx.fillText('No polar data. Run a polar sweep in the Solve panel.', width / 2, height / 2);
     }
-  }, [canvasSize, polarData, totalPoints, xAxis, yAxis, xBounds, yBounds, margin]);
+  }, [canvasSize, polarData, totalPoints, xAxis, yAxis, xBounds, yBounds]);
   
   // Resize observer
   useEffect(() => {
@@ -309,7 +299,7 @@ export function PolarPanel() {
           maxHeight: '100px',
           overflowY: 'auto',
         }}>
-          {polarData.map((series, i) => (
+          {polarData.map((series) => (
             <div
               key={series.key}
               style={{
@@ -323,7 +313,7 @@ export function PolarPanel() {
                 width: 10,
                 height: 10,
                 borderRadius: 2,
-                background: SERIES_COLORS[i % SERIES_COLORS.length],
+                background: colorForKey(series.key),
                 flexShrink: 0,
               }} />
               <span style={{

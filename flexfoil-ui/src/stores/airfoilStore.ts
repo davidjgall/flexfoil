@@ -21,6 +21,7 @@ import type {
   SSPVisualization,
   CamberControlPoint,
   ThicknessControlPoint,
+  RunRow,
 } from '../types';
 import {
   generateNaca4 as wasmGenerateNaca4,
@@ -176,6 +177,7 @@ interface AirfoilStore extends AirfoilState {
   upsertPolar: (series: PolarSeries) => void;
   removePolar: (key: string) => void;
   clearAllPolars: () => void;
+  restoreRunSnapshot: (run: RunRow) => void;
   
   // Reset
   reset: () => void;
@@ -835,6 +837,29 @@ export const useAirfoilStore = create<AirfoilStore>()(
         polarData: state.polarData.filter(s => s.key !== key),
       })),
       clearAllPolars: () => set({ polarData: [] }),
+      restoreRunSnapshot: (run) => set((state) => {
+        if (!run.geometry_snapshot) return state;
+        return {
+          name: run.airfoil_name,
+          coordinates: run.geometry_snapshot.coordinates,
+          panels: run.geometry_snapshot.panels,
+          baseCoordinates: run.geometry_snapshot.coordinates,
+          nPanels: run.n_panels,
+          displayAlpha: run.alpha,
+          reynolds: run.reynolds,
+          mach: run.mach,
+          ncrit: run.ncrit,
+          maxIterations: run.max_iter,
+          solverMode: run.solver_mode,
+          controlMode: 'parameters',
+          bezierHandles: [],
+          bsplineControlPoints: [],
+          camberControlPoints: [],
+          thicknessControlPoints: [],
+          thicknessScale: 1.0,
+          camberScale: 1.0,
+        };
+      }),
 
       reset: () => set({
         name: 'NACA 0012',

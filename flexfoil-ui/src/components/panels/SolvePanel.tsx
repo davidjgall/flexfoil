@@ -15,8 +15,6 @@ import { analyzeAirfoil, analyzeAirfoilInviscid, isWasmReady, type AnalysisResul
 import type { PolarPoint } from '../../types';
 import type { RunInsert } from '../../lib/runDatabase';
 
-type RunMode = 'alpha' | 'cl';
-
 type SolveOrCacheResult = {
   result: AnalysisResult | null;
   fromCache: boolean;
@@ -43,6 +41,7 @@ function buildResultDetails(result: AnalysisResult): Record<string, unknown> {
 }
 export function SolvePanel() {
   const {
+    coordinates,
     panels,
     name,
     polarData,
@@ -144,6 +143,15 @@ export function SolvePanel() {
   const polar = useMemo(() => lastSeries?.points ?? [], [lastSeries]);
 
   const isViscous = solverMode === 'viscous';
+
+  const serializePoints = useCallback((points: { x: number; y: number; s?: number; surface?: 'upper' | 'lower' }[]) => {
+    return JSON.stringify(points.map((point) => ({
+      x: point.x,
+      y: point.y,
+      ...(point.s != null ? { s: point.s } : {}),
+      ...(point.surface ? { surface: point.surface } : {}),
+    })));
+  }, []);
 
   // --------------- helpers ---------------
 
@@ -252,8 +260,11 @@ export function SolvePanel() {
       residual: res.residual,
       x_tr_upper: res.x_tr_upper,
       x_tr_lower: res.x_tr_lower,
+      solver_mode: solverMode,
       success: res.success,
       error: res.error ?? null,
+      coordinates_json: serializePoints(coordinates),
+      panels_json: serializePoints(panels),
     };
     await addRun(run);
 
@@ -269,7 +280,21 @@ export function SolvePanel() {
     }
 
     return { result: res, fromCache: false };
-  }, [panels, name, cacheRe, cacheMach, cacheNcrit, cacheMaxIter, runSolver, lookup, addRun, appendEvent]);
+  }, [
+    panels,
+    coordinates,
+    name,
+    solverMode,
+    cacheRe,
+    cacheMach,
+    cacheNcrit,
+    cacheMaxIter,
+    runSolver,
+    lookup,
+    addRun,
+    appendEvent,
+    serializePoints,
+  ]);
 
   // --------------- single-point ---------------
 

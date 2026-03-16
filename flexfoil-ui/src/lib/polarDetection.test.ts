@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectPolarGroups,
+  detectSmartRunGroups,
   splitByAlphaGap,
   formatReynolds,
 } from './polarDetection';
@@ -26,10 +27,12 @@ function makeRow(overrides: Partial<RunRow> = {}): RunRow {
     residual: 1e-6,
     x_tr_upper: 0.3,
     x_tr_lower: 0.6,
+    solver_mode: 'viscous',
     success: true,
     error: null,
     created_at: '2025-01-01T00:00:00',
     session_id: 's_abc',
+    geometry_snapshot: null,
     ...overrides,
   };
 }
@@ -217,5 +220,49 @@ describe('detectPolarGroups', () => {
     const groups = detectPolarGroups(rows);
     expect(groups).toHaveLength(2);
     expect(groups.map(g => g.label).sort()).toEqual(['Nc=4', 'Nc=9']);
+  });
+});
+
+describe('detectSmartRunGroups', () => {
+  it('groups rows when only the plotted variables differ', () => {
+    const rows = [
+      makeRow({ id: 1, alpha: 0, reynolds: 1e6, cl: 0.2 }),
+      makeRow({ id: 2, alpha: 2, reynolds: 1e6, cl: 0.4 }),
+      makeRow({ id: 3, alpha: 4, reynolds: 1e6, cl: 0.6 }),
+    ];
+    const groups = detectSmartRunGroups(rows, {
+      sortField: 'alpha',
+      plottedFields: ['alpha', 'cl'],
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].rows.map((row) => row.alpha)).toEqual([0, 2, 4]);
+  });
+
+  it('uses other invariant inputs to separate distinct sweeps', () => {
+    const rows = [
+      makeRow({ id: 1, alpha: 0, reynolds: 1e6, mach: 0 }),
+      makeRow({ id: 2, alpha: 2, reynolds: 1e6, mach: 0 }),
+      makeRow({ id: 3, alpha: 0, reynolds: 2e6, mach: 0 }),
+      makeRow({ id: 4, alpha: 2, reynolds: 2e6, mach: 0 }),
+    ];
+    const groups = detectSmartRunGroups(rows, {
+      sortField: 'alpha',
+      plottedFields: ['alpha', 'cl'],
+    });
+    expect(groups).toHaveLength(2);
+    expect(groups.map((group) => group.label).sort()).toEqual(['Re=1M', 'Re=2M']);
+  });
+
+  it('can ignore an encoding field when auto-grouping', () => {
+    const rows = [
+      makeRow({ id: 1, alpha: 0, ncrit: 9, cl: 0.2 }),
+      makeRow({ id: 2, alpha: 2, ncrit: 4, cl: 0.4 }),
+    ];
+    const groups = detectSmartRunGroups(rows, {
+      sortField: 'alpha',
+      plottedFields: ['alpha', 'cl'],
+      encodingFields: ['ncrit'],
+    });
+    expect(groups).toHaveLength(1);
   });
 });

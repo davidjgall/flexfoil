@@ -6,7 +6,7 @@
 
 import initSqlJs, { type Database } from 'sql.js';
 import { openDB, type IDBPDatabase } from 'idb';
-import type { RunRow } from '../types';
+import type { AirfoilPoint, RunGeometrySnapshot, RunRow, SolverMode } from '../types';
 import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 
 const DB_NAME = 'flexfoil-runs';
@@ -64,8 +64,11 @@ CREATE TABLE IF NOT EXISTS runs (
   residual      REAL,
   x_tr_upper    REAL,
   x_tr_lower    REAL,
+  solver_mode   TEXT NOT NULL DEFAULT 'viscous',
   success       INTEGER NOT NULL DEFAULT 0,
   error         TEXT,
+  coordinates_json TEXT,
+  panels_json   TEXT,
   created_at    TEXT DEFAULT (datetime('now')),
   session_id    TEXT
 );
@@ -73,6 +76,25 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cache_key
   ON runs(airfoil_hash, alpha, reynolds, mach, ncrit, n_panels, max_iter);
 `;
+
+const REQUIRED_COLUMNS: Array<{ name: string; definition: string }> = [
+  { name: 'solver_mode', definition: "TEXT NOT NULL DEFAULT 'viscous'" },
+  { name: 'coordinates_json', definition: 'TEXT' },
+  { name: 'panels_json', definition: 'TEXT' },
+];
+
+function ensureSchemaColumns(): void {
+  const d = getDb();
+  const info = d.exec("PRAGMA table_info('runs')");
+  const existing = new Set(
+    (info[0]?.values ?? []).map((row) => String(row[1])),
+  );
+  for (const column of REQUIRED_COLUMNS) {
+    if (!existing.has(column.name)) {
+      d.run(`ALTER TABLE runs ADD COLUMN ${column.name} ${column.definition}`);
+    }
+  }
+}
 
 export async function initRunDatabase(): Promise<void> {
   if (db) return;
@@ -87,9 +109,11 @@ export async function initRunDatabase(): Promise<void> {
   if (saved) {
     db = new SQL.Database(new Uint8Array(saved as ArrayBuffer));
     db.run(SCHEMA);
+    ensureSchemaColumns();
   } else {
     db = new SQL.Database();
     db.run(SCHEMA);
+    ensureSchemaColumns();
   }
 }
 
@@ -126,6 +150,9 @@ export interface RunInsert {
   x_tr_lower: number | null;
   success: boolean;
   error: string | null;
+  solver_mode: SolverMode;
+  coordinates_json: string | null;
+  panels_json: string | null;
 }
 
 export async function insertRun(run: RunInsert): Promise<number> {
@@ -134,8 +161,8 @@ export async function insertRun(run: RunInsert): Promise<number> {
     `INSERT OR IGNORE INTO runs
        (airfoil_name, airfoil_hash, alpha, reynolds, mach, ncrit, n_panels, max_iter,
         cl, cd, cm, converged, iterations, residual, x_tr_upper, x_tr_lower,
-        success, error, session_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       solver_mode, success, error, coordinates_json, panels_json, session_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       run.airfoil_name,
       run.airfoil_hash,
@@ -153,8 +180,11 @@ export async function insertRun(run: RunInsert): Promise<number> {
       run.residual,
       run.x_tr_upper,
       run.x_tr_lower,
+      run.solver_mode,
       run.success ? 1 : 0,
       run.error,
+      run.coordinates_json,
+      run.panels_json,
       getSessionId(),
     ]
   );
@@ -228,7 +258,41 @@ export async function importDatabase(data: Uint8Array): Promise<void> {
   if (db) db.close();
   db = new SQL.Database(data);
   db.run(SCHEMA);
+  ensureSchemaColumns();
   await persistToIdb();
+}
+
+function parsePointArray(json: unknown): AirfoilPoint[] | null {
+  if (typeof json !== 'string' || json.trim() === '') return null;
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return null;
+    return parsed
+      .filter((point): point is AirfoilPoint => (
+        typeof point === 'object' &&
+        point !== null &&
+        typeof (point as AirfoilPoint).x === 'number' &&
+        typeof (point as AirfoilPoint).y === 'number'
+      ))
+      .map((point) => ({
+        x: point.x,
+        y: point.y,
+        ...(point.s != null ? { s: point.s } : {}),
+        ...(point.surface ? { surface: point.surface } : {}),
+      }));
+  } catch {
+    return null;
+  }
+}
+
+function parseGeometrySnapshot(
+  coordinatesJson: unknown,
+  panelsJson: unknown,
+): RunGeometrySnapshot | null {
+  const coordinates = parsePointArray(coordinatesJson);
+  const panels = parsePointArray(panelsJson);
+  if (!coordinates || !panels) return null;
+  return { coordinates, panels };
 }
 
 function rowToRunRow(columns: string[], values: (string | number | null | Uint8Array)[]): RunRow {
@@ -254,9 +318,11 @@ function rowToRunRow(columns: string[], values: (string | number | null | Uint8A
     residual: obj.residual as number | null,
     x_tr_upper: obj.x_tr_upper as number | null,
     x_tr_lower: obj.x_tr_lower as number | null,
+    solver_mode: (obj.solver_mode as SolverMode | null) ?? 'viscous',
     success: (obj.success as number) === 1,
     error: obj.error as string | null,
     created_at: obj.created_at as string,
     session_id: obj.session_id as string | null,
+    geometry_snapshot: parseGeometrySnapshot(obj.coordinates_json, obj.panels_json),
   };
 }

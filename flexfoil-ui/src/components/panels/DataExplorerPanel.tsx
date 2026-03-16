@@ -25,39 +25,13 @@ import { useRunStore } from '../../stores/runStore';
 import { useRouteUiStore } from '../../stores/routeUiStore';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { RunRow } from '../../types';
-
-// ────────────────────────────────────────────────────────────
-// Shared constants
-// ────────────────────────────────────────────────────────────
-
-interface NumericField { key: keyof RunRow; label: string }
-
-const NUMERIC_FIELDS: NumericField[] = [
-  { key: 'alpha', label: 'α (°)' },
-  { key: 'cl', label: 'CL' },
-  { key: 'cd', label: 'CD' },
-  { key: 'cm', label: 'CM' },
-  { key: 'reynolds', label: 'Re' },
-  { key: 'mach', label: 'Mach' },
-  { key: 'ncrit', label: 'Ncrit' },
-  { key: 'x_tr_upper', label: 'Xtr Up' },
-  { key: 'x_tr_lower', label: 'Xtr Lo' },
-  { key: 'iterations', label: 'Iter' },
-  { key: 'residual', label: 'Residual' },
-  { key: 'n_panels', label: 'Panels' },
-];
-
-const COLOR_FIELDS: NumericField[] = [
-  ...NUMERIC_FIELDS,
-  { key: 'airfoil_name', label: 'Airfoil' },
-  { key: 'converged', label: 'Converged' },
-  { key: 'session_id', label: 'Session' },
-];
-
-const COLORS = [
-  '#00d4aa', '#ff6b6b', '#4ecdc4', '#ffe66d', '#a29bfe',
-  '#fd79a8', '#6c5ce7', '#00cec9', '#fab1a0', '#74b9ff',
-];
+import {
+  ENCODING_PLOT_FIELDS,
+  NUMERIC_PLOT_FIELDS,
+  getPlotFieldLabel,
+  isNumericPlotField,
+} from '../../lib/plotFields';
+import { buildMarkerEncoding, colorForKey } from '../../lib/plotStyling';
 
 // ────────────────────────────────────────────────────────────
 // Helpers
@@ -79,9 +53,26 @@ function pearsonR(xs: number[], ys: number[]): number | null {
 }
 
 function getLabel(key: keyof RunRow): string {
-  return NUMERIC_FIELDS.find(f => f.key === key)?.label
-    ?? COLOR_FIELDS.find(f => f.key === key)?.label
-    ?? String(key);
+  return getPlotFieldLabel(key);
+}
+
+function axisRef(prefix: 'x' | 'y', index: number): string {
+  return index === 1 ? prefix : `${prefix}${index}`;
+}
+
+function axisLayoutKey(prefix: 'x' | 'y', index: number): string {
+  return index === 1 ? `${prefix}axis` : `${prefix}axis${index}`;
+}
+
+function computeNumericRange(rows: RunRow[], key: keyof RunRow): [number, number] {
+  const values = rows
+    .map((row) => row[key])
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  if (values.length === 0) return [0, 1];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const pad = (max - min) * 0.05 || 0.5;
+  return [min - pad, max + pad];
 }
 
 // ────────────────────────────────────────────────────────────
@@ -109,11 +100,14 @@ function buildColumnDefs(): ColDef<RunRow>[] {
     { field: 'residual', headerName: 'Residual', width: 110, chartDataType: 'series' as const, valueFormatter: p => p.value?.toExponential(2) ?? '' },
     { field: 'n_panels', headerName: 'Panels', width: 85, chartDataType: 'series' as const },
     { field: 'max_iter', headerName: 'MaxIter', width: 85, hide: true, chartDataType: 'series' as const },
+    { field: 'solver_mode', headerName: 'Solver', width: 90, chartDataType: 'category' as const, enableRowGroup: true },
     { field: 'session_id', headerName: 'Session', width: 130, enableRowGroup: true, hide: true, chartDataType: 'category' as const },
     { field: 'created_at', headerName: 'Time', width: 170, sort: 'desc', chartDataType: 'category' as const },
     { field: 'airfoil_hash', headerName: 'Hash', width: 130, hide: true, chartDataType: 'category' as const },
   ];
 }
+
+type GridFilterModel = ReturnType<GridApi<RunRow>['getFilterModel']>;
 
 // ────────────────────────────────────────────────────────────
 // Component
@@ -121,7 +115,7 @@ function buildColumnDefs(): ColDef<RunRow>[] {
 
 export function DataExplorerPanel() {
   const { isDark } = useTheme();
-  const { allRuns, setFilteredRuns, clearAll, exportDb, importDb } = useRunStore();
+  const { allRuns, setFilteredRuns, clearAll, exportDb, importDb, restoreRunById, selectedRunId } = useRunStore();
 
   const view = useRouteUiStore((state) => state.dataExplorerView);
   const setView = useRouteUiStore((state) => state.setDataExplorerView);
@@ -131,6 +125,8 @@ export function DataExplorerPanel() {
   const setColorBy = useRouteUiStore((state) => state.setDataExplorerColorBy);
   const filterModel = useRouteUiStore((state) => state.dataExplorerFilterModel);
   const setFilterModel = useRouteUiStore((state) => state.setDataExplorerFilterModel);
+  const [sizeBy, setSizeBy] = useState<keyof RunRow | ''>('');
+  const [symbolBy, setSymbolBy] = useState<keyof RunRow | ''>('');
 
   // ── AG Grid refs & config ──
   const gridRef = useRef<AgGridReact<RunRow>>(null);
@@ -142,7 +138,7 @@ export function DataExplorerPanel() {
     () => isDark ? themeQuartz.withPart(colorSchemeDark) : themeQuartz,
     [isDark],
   );
-  const columnDefs = useMemo(buildColumnDefs, []);
+  const columnDefs = useMemo(() => buildColumnDefs(), []);
   const defaultColDef = useMemo<ColDef<RunRow>>(() => ({
     sortable: true, filter: true, resizable: true,
     enableRowGroup: true, enableValue: true,
@@ -152,7 +148,7 @@ export function DataExplorerPanel() {
   const onGridReady = useCallback((e: GridReadyEvent<RunRow>) => {
     apiRef.current = e.api;
     if (filterModel) {
-      e.api.setFilterModel(filterModel as any);
+      e.api.setFilterModel(filterModel as GridFilterModel);
     }
   }, [filterModel]);
   const onFilterChanged = useCallback((e: FilterChangedEvent<RunRow>) => {
@@ -175,72 +171,147 @@ export function DataExplorerPanel() {
 
   useEffect(() => {
     if (!apiRef.current) return;
-    apiRef.current.setFilterModel((filterModel as any) ?? null);
+    apiRef.current.setFilterModel((filterModel as GridFilterModel) ?? null);
   }, [filterModel]);
 
   const splomResult = useMemo(() => {
     if (successOnly.length === 0 || splomKeys.length < 2) return null;
 
-    const dimensions = splomKeys.map(key => ({
-      label: getLabel(key),
-      values: successOnly.map(r => (r[key] as number) ?? 0),
-    }));
-
-    let markerConfig: Record<string, unknown> = { size: 3, opacity: 0.6, color: COLORS[0] };
-    if (colorBy) {
-      const vals = successOnly.map(r => r[colorBy]);
-      const isNumeric = vals.every(v => v == null || typeof v === 'number');
-      if (isNumeric) {
-        markerConfig = { ...markerConfig, color: vals.map(v => (v as number) ?? 0), colorscale: 'Viridis', colorbar: { title: getLabel(colorBy), thickness: 15, len: 0.5 } };
-      } else {
-        const unique = [...new Set(vals.map(v => String(v ?? 'null')))];
-        const colorMap = Object.fromEntries(unique.map((v, i) => [v, COLORS[i % COLORS.length]]));
-        markerConfig = { ...markerConfig, color: vals.map(v => colorMap[String(v ?? 'null')]) };
-      }
-    }
-
-    const trace = { type: 'splom' as const, dimensions, marker: markerConfig, diagonal: { visible: true }, showupperhalf: true, showlowerhalf: true };
-
     const n = splomKeys.length;
+    const gridGap = n > 4 ? 0.012 : 0.02;
+    const cellSize = (1 - gridGap * (n - 1)) / n;
     const annotations: Plotly.Annotations[] = [];
+    const gridColor = isDark ? '#333' : '#ddd';
+    const traces: Plotly.Data[] = [];
+    const axisOverrides: Record<string, unknown> = {};
+    const ranges = Object.fromEntries(
+      splomKeys.map((key) => [key, computeNumericRange(successOnly, key)]),
+    ) as Record<keyof RunRow, [number, number]>;
+
+    let colorScaleShown = false;
+
     for (let row = 0; row < n; row++) {
       for (let col = 0; col < n; col++) {
-        if (row === col) continue;
-        const r = pearsonR(dimensions[col].values, dimensions[row].values);
-        if (r == null) continue;
-        const axIdx = row * n + col;
-        const xKey = axIdx === 0 ? 'xaxis' : `xaxis${axIdx + 1}`;
-        const yKey = axIdx === 0 ? 'yaxis' : `yaxis${axIdx + 1}`;
-        annotations.push({
-          text: `r=${r.toFixed(2)}`,
-          font: { size: 9, color: Math.abs(r) > 0.7 ? COLORS[0] : (isDark ? '#888' : '#666') },
-          showarrow: false,
-          xref: `${xKey} domain` as Plotly.XAxisName,
-          yref: `${yKey} domain` as Plotly.YAxisName,
-          x: 0.95, y: 0.95, xanchor: 'right', yanchor: 'top',
-        } as Plotly.Annotations);
-      }
-    }
+        const axisIndex = row * n + col + 1;
+        const xRef = axisRef('x', axisIndex);
+        const yRef = axisRef('y', axisIndex);
+        const xLayoutKey = axisLayoutKey('x', axisIndex);
+        const yLayoutKey = axisLayoutKey('y', axisIndex);
+        const domainX: [number, number] = [
+          col * (cellSize + gridGap),
+          col * (cellSize + gridGap) + cellSize,
+        ];
+        const domainY: [number, number] = [
+          1 - (row + 1) * cellSize - row * gridGap,
+          1 - row * (cellSize + gridGap),
+        ];
+        const xKey = splomKeys[col];
+        const yKey = splomKeys[row];
 
-    const gridColor = isDark ? '#333' : '#ddd';
-    const axisOverrides: Record<string, unknown> = {};
-    for (let i = 0; i < n * n; i++) {
-      const suffix = i === 0 ? '' : `${i + 1}`;
-      axisOverrides[`xaxis${suffix}`] = { gridcolor: gridColor, zerolinecolor: gridColor };
-      axisOverrides[`yaxis${suffix}`] = { gridcolor: gridColor, zerolinecolor: gridColor };
+        axisOverrides[xLayoutKey] = {
+          domain: domainX,
+          anchor: yRef,
+          range: ranges[xKey],
+          gridcolor: gridColor,
+          zerolinecolor: gridColor,
+          showline: true,
+          mirror: true,
+          tickfont: { size: 9 },
+          showticklabels: row === n - 1,
+          title: row === n - 1 ? { text: getLabel(xKey), font: { size: 10 } } : undefined,
+        };
+        axisOverrides[yLayoutKey] = {
+          domain: domainY,
+          anchor: xRef,
+          gridcolor: gridColor,
+          zerolinecolor: gridColor,
+          showline: true,
+          mirror: true,
+          tickfont: { size: 9 },
+          showticklabels: col === 0,
+          title: col === 0 ? { text: getLabel(yKey), font: { size: 10 } } : undefined,
+        };
+
+        if (row === col) {
+          const rows = successOnly.filter((run) => run[xKey] != null);
+          traces.push({
+            type: 'histogram',
+            x: rows.map((run) => run[xKey]) as number[],
+            xaxis: xRef,
+            yaxis: yRef,
+            marker: { color: colorForKey(String(xKey)), opacity: 0.85 },
+            showlegend: false,
+            hovertemplate: `${getLabel(xKey)}=%{x}<br>Count=%{y}<extra></extra>`,
+          });
+          continue;
+        }
+
+        const rows = successOnly.filter((run) => run[xKey] != null && run[yKey] != null);
+        const { marker } = buildMarkerEncoding({
+          rows,
+          colorBy,
+          sizeBy,
+          symbolBy,
+          defaultColor: colorForKey(`${String(xKey)}|${String(yKey)}`),
+          defaultSize: 5,
+          opacity: 0.65,
+          minSize: 3,
+          maxSize: 11,
+          showColorScale: !colorScaleShown,
+        });
+        if (colorBy && isNumericPlotField(colorBy) && !colorScaleShown) {
+          colorScaleShown = true;
+        }
+        traces.push({
+          type: 'scatter',
+          mode: 'markers',
+          x: rows.map((run) => run[xKey]) as number[],
+          y: rows.map((run) => run[yKey]) as number[],
+          xaxis: xRef,
+          yaxis: yRef,
+          marker,
+          customdata: rows.map((run) => run.id),
+          showlegend: false,
+          hovertemplate: `${getLabel(xKey)}=%{x}<br>${getLabel(yKey)}=%{y}<br>Run #%{customdata}<extra></extra>`,
+        });
+
+        const xValues = rows.map((run) => run[xKey] as number);
+        const yValues = rows.map((run) => run[yKey] as number);
+        const r = pearsonR(xValues, yValues);
+        if (r != null) {
+          annotations.push({
+            text: `r=${r.toFixed(2)}`,
+            font: { size: 9, color: Math.abs(r) > 0.7 ? colorForKey('corr-strong') : (isDark ? '#888' : '#666') },
+            showarrow: false,
+            xref: `${xLayoutKey} domain` as Plotly.XAxisName,
+            yref: `${yLayoutKey} domain` as Plotly.YAxisName,
+            x: 0.95,
+            y: 0.95,
+            xanchor: 'right',
+            yanchor: 'top',
+          } as Plotly.Annotations);
+        }
+      }
     }
 
     const layout: Partial<Plotly.Layout> = {
       autosize: true,
-      margin: { l: 60, r: 20, t: 20, b: 40 },
+      margin: { l: 80, r: 30, t: 20, b: 60 },
       paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
       font: { color: isDark ? '#ccc' : '#333', size: 10 },
       showlegend: false, dragmode: 'select' as const,
       annotations, ...axisOverrides,
     };
 
-    return { traces: [trace], layout };
-  }, [successOnly, splomKeys, colorBy, isDark]);
+    return { traces, layout };
+  }, [successOnly, splomKeys, colorBy, sizeBy, symbolBy, isDark]);
+
+  const handlePlotClick = useCallback((event: Readonly<Plotly.PlotMouseEvent>) => {
+    const rawRunId = event.points?.[0]?.customdata;
+    if (typeof rawRunId === 'number') {
+      restoreRunById(rawRunId);
+    }
+  }, [restoreRunById]);
 
   // ── Styles ──
   const btnStyle: React.CSSProperties = {
@@ -257,9 +328,9 @@ export function DataExplorerPanel() {
   });
   const chipStyle = (active: boolean): React.CSSProperties => ({
     padding: '2px 7px', fontSize: '10px', borderRadius: '10px',
-    border: `1px solid ${active ? COLORS[0] : 'var(--border-color)'}`,
+    border: `1px solid ${active ? colorForKey('accent-active') : 'var(--border-color)'}`,
     background: active ? (isDark ? 'rgba(0,212,170,0.15)' : 'rgba(0,212,170,0.1)') : 'transparent',
-    color: active ? COLORS[0] : 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap',
+    color: active ? colorForKey('accent-active') : 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap',
   });
 
   return (
@@ -357,7 +428,7 @@ export function DataExplorerPanel() {
             display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', flexShrink: 0,
           }}>
             <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginRight: '2px' }}>Columns:</span>
-            {NUMERIC_FIELDS.map(f => (
+            {NUMERIC_PLOT_FIELDS.map(f => (
               <button key={f.key as string} onClick={() => toggleSplomKey(f.key)} style={chipStyle(splomKeys.includes(f.key))}>
                 {f.label}
               </button>
@@ -374,7 +445,33 @@ export function DataExplorerPanel() {
               }}
             >
               <option value="">None</option>
-              {COLOR_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
+              {ENCODING_PLOT_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
+            </select>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Size:</span>
+            <select
+              value={sizeBy as string}
+              onChange={e => setSizeBy((e.target.value || '') as keyof RunRow | '')}
+              style={{
+                padding: '2px 6px', fontSize: '10px',
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                borderRadius: '3px', color: 'var(--text-primary)',
+              }}
+            >
+              <option value="">None</option>
+              {ENCODING_PLOT_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
+            </select>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Type:</span>
+            <select
+              value={symbolBy as string}
+              onChange={e => setSymbolBy((e.target.value || '') as keyof RunRow | '')}
+              style={{
+                padding: '2px 6px', fontSize: '10px',
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                borderRadius: '3px', color: 'var(--text-primary)',
+              }}
+            >
+              <option value="">None</option>
+              {ENCODING_PLOT_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
             </select>
           </div>
 
@@ -393,10 +490,21 @@ export function DataExplorerPanel() {
                 data={(splomResult?.traces ?? []) as Plotly.Data[]}
                 layout={(splomResult?.layout ?? {}) as Partial<Plotly.Layout>}
                 config={{ responsive: true, displayModeBar: true, displaylogo: false }}
+                onClick={handlePlotClick}
                 useResizeHandler
                 style={{ width: '100%', height: '100%' }}
               />
             )}
+          </div>
+          <div style={{
+            padding: '4px 10px',
+            borderTop: '1px solid var(--border-color)',
+            fontSize: '10px',
+            color: 'var(--text-muted)',
+            flexShrink: 0,
+          }}>
+            Diagonal cells show distributions; click any scatter point to load its historical flowfield.
+            {selectedRunId != null ? ` Current restored run: #${selectedRunId}` : ''}
           </div>
         </div>
       )}

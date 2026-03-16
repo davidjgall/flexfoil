@@ -18,6 +18,7 @@
     "ag-grid-react": "^35.1.0",
     "d3-contour": "^4.0.2",
     "d3-geo": "^3.1.1",
+    "distinct-colors": "^3.0.0",
     "driver.js": "^1.4.0",
     "flexlayout-react": "^0.8.18",
     "idb": "^8.0.3",

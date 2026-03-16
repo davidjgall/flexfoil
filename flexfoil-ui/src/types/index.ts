@@ -164,6 +164,12 @@ export interface PolarSeries {
   points: PolarPoint[];
 }
 
+/** Geometry payload persisted with a historical run for later restoration. */
+export interface RunGeometrySnapshot {
+  coordinates: AirfoilPoint[];
+  panels: AirfoilPoint[];
+}
+
 /** A row from the runs SQLite table — one solver evaluation */
 export interface RunRow {
   id: number;
@@ -183,10 +189,12 @@ export interface RunRow {
   residual: number | null;
   x_tr_upper: number | null;
   x_tr_lower: number | null;
+  solver_mode: SolverMode;
   success: boolean;
   error: string | null;
   created_at: string;
   session_id: string | null;
+  geometry_snapshot: RunGeometrySnapshot | null;
 }
 
 /** Panel configuration for FlexLayout */

@@ -1,51 +1,17 @@
-/**
- * PlotBuilderPanel — "plot anything vs anything" with Plotly.
- *
- * Inspired by Flexcompute-Thread's PlotBuilder. The user picks X/Y
- * axes from all numeric columns in the run database, optionally
- * groups traces by a categorical field, and selects a chart type.
- *
- * Data source can be switched between the full dataset and the subset
- * currently visible in the AG Grid (filtered rows).
- */
-
-import { useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import Plot from 'react-plotly.js';
 import { useRunStore } from '../../stores/runStore';
 import { AUTO_GROUP_KEY, useRouteUiStore } from '../../stores/routeUiStore';
 import { useTheme } from '../../contexts/ThemeContext';
-import { detectPolarGroups } from '../../lib/polarDetection';
+import { detectSmartRunGroups } from '../../lib/polarDetection';
+import {
+  ENCODING_PLOT_FIELDS,
+  NUMERIC_PLOT_FIELDS,
+  getPlotFieldLabel,
+  isNumericPlotField,
+} from '../../lib/plotFields';
+import { buildMarkerEncoding, colorForKey, colorForValue } from '../../lib/plotStyling';
 import type { AxisScale, ChartType, DataSource, RunRow } from '../../types';
-
-interface AxisField {
-  key: keyof RunRow;
-  label: string;
-}
-
-const NUMERIC_FIELDS: AxisField[] = [
-  { key: 'alpha', label: 'α (°)' },
-  { key: 'cl', label: 'CL' },
-  { key: 'cd', label: 'CD' },
-  { key: 'cm', label: 'CM' },
-  { key: 'reynolds', label: 'Re' },
-  { key: 'mach', label: 'Mach' },
-  { key: 'ncrit', label: 'Ncrit' },
-  { key: 'x_tr_upper', label: 'Xtr Upper' },
-  { key: 'x_tr_lower', label: 'Xtr Lower' },
-  { key: 'iterations', label: 'Iterations' },
-  { key: 'residual', label: 'Residual' },
-  { key: 'n_panels', label: 'N Panels' },
-];
-
-const GROUP_FIELDS: AxisField[] = [
-  { key: 'airfoil_name', label: 'Airfoil' },
-  { key: 'reynolds', label: 'Re' },
-  { key: 'mach', label: 'Mach' },
-  { key: 'ncrit', label: 'Ncrit' },
-  { key: 'converged', label: 'Converged' },
-  { key: 'session_id', label: 'Session' },
-  { key: 'n_panels', label: 'N Panels' },
-];
 
 const CHART_TYPES: { value: ChartType; label: string }[] = [
   { value: 'scatter', label: 'Scatter' },
@@ -54,15 +20,9 @@ const CHART_TYPES: { value: ChartType; label: string }[] = [
   { value: 'histogram', label: 'Histogram' },
 ];
 
-const COLORS = [
-  '#00d4aa', '#ff6b6b', '#4ecdc4', '#ffe66d', '#a29bfe',
-  '#fd79a8', '#6c5ce7', '#00cec9', '#fab1a0', '#74b9ff',
-  '#55efc4', '#fdcb6e', '#e17055', '#0984e3', '#d63031',
-];
-
 export function PlotBuilderPanel() {
   const { isDark } = useTheme();
-  const { allRuns, filteredRuns } = useRunStore();
+  const { allRuns, filteredRuns, restoreRunById, selectedRunId } = useRunStore();
 
   const dataSource = useRouteUiStore((state) => state.plotDataSource);
   const setDataSource = useRouteUiStore((state) => state.setPlotDataSource);
@@ -78,91 +38,109 @@ export function PlotBuilderPanel() {
   const setXScale = useRouteUiStore((state) => state.setPlotXScale);
   const yScale = useRouteUiStore((state) => state.plotYScale);
   const setYScale = useRouteUiStore((state) => state.setPlotYScale);
+  const [colorBy, setColorBy] = useState<keyof RunRow | ''>('');
+  const [sizeBy, setSizeBy] = useState<keyof RunRow | ''>('');
+  const [symbolBy, setSymbolBy] = useState<keyof RunRow | ''>('');
 
   const data = dataSource === 'full' ? allRuns : filteredRuns;
   const successOnly = useMemo(() => data.filter(r => r.success), [data]);
+  const getLabel = useCallback((key: keyof RunRow) => getPlotFieldLabel(key), []);
 
-  const getLabel = useCallback((key: keyof RunRow) => {
-    return NUMERIC_FIELDS.find(f => f.key === key)?.label
-      ?? GROUP_FIELDS.find(f => f.key === key)?.label
-      ?? key;
-  }, []);
-
-  const traces = useMemo(() => {
+  const groups = useMemo(() => {
     if (successOnly.length === 0) return [];
-
-    if (chartType === 'histogram') {
-      return [{
-        x: successOnly.map(r => r[xField]).filter(v => v != null) as number[],
-        type: 'histogram' as const,
-        name: getLabel(xField),
-        marker: { color: COLORS[0] },
-      }];
-    }
-
-    // --- Auto (Polars) mode: compound-key grouping with gap detection ---
     if (groupBy === AUTO_GROUP_KEY) {
-      const polarGroups = detectPolarGroups(successOnly, xField);
-
-      return polarGroups.map((pg, i) => {
-        const x = pg.rows.map(r => r[xField]).filter(v => v != null) as number[];
-        const y = pg.rows.map(r => r[yField]).filter(v => v != null) as number[];
-        const mode = pg.isSinglePoint ? 'markers' as const
-          : chartType === 'scatter' ? 'markers' as const
-          : chartType === 'line' ? 'lines+markers' as const
-          : undefined;
-        return {
-          x, y,
-          type: (chartType === 'bar' ? 'bar' : 'scatter') as 'bar' | 'scatter',
-          mode,
-          name: pg.label,
-          marker: { color: COLORS[i % COLORS.length], size: 6 },
-          line: { width: 2 },
-        };
+      return detectSmartRunGroups(successOnly, {
+        sortField: xField,
+        plottedFields: chartType === 'histogram' ? [xField] : [xField, yField],
+        encodingFields: [colorBy, sizeBy, symbolBy],
       });
     }
-
-    // --- No grouping ---
     if (!groupBy) {
-      const x = successOnly.map(r => r[xField]).filter(v => v != null) as number[];
-      const y = successOnly.map(r => r[yField]).filter(v => v != null) as number[];
-      const mode = chartType === 'scatter' ? 'markers' as const
-        : chartType === 'line' ? 'lines+markers' as const
-        : undefined;
       return [{
-        x, y,
-        type: (chartType === 'bar' ? 'bar' : 'scatter') as 'bar' | 'scatter',
-        mode,
-        name: `${getLabel(yField)} vs ${getLabel(xField)}`,
-        marker: { color: COLORS[0], size: 6 },
-        line: { width: 2 },
+        key: 'all',
+        label: chartType === 'histogram' ? getLabel(xField) : `${getLabel(yField)} vs ${getLabel(xField)}`,
+        rows: successOnly,
+        isSinglePoint: successOnly.length === 1,
       }];
     }
-
-    // --- Manual single-field grouping ---
-    const groups = new Map<string, RunRow[]>();
+    const manualGroups = new Map<string, RunRow[]>();
     for (const row of successOnly) {
       const key = String(row[groupBy] ?? 'null');
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(row);
+      if (!manualGroups.has(key)) manualGroups.set(key, []);
+      manualGroups.get(key)!.push(row);
     }
+    return [...manualGroups.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, rows]) => ({
+        key: `${String(groupBy)}=${key}`,
+        label: `${getLabel(groupBy)}: ${key}`,
+        rows,
+        isSinglePoint: rows.length === 1,
+      }));
+  }, [successOnly, chartType, xField, yField, colorBy, sizeBy, symbolBy, groupBy, getLabel]);
 
-    return Array.from(groups.entries()).map(([key, rows], i) => {
-      const x = rows.map(r => r[xField]).filter(v => v != null) as number[];
-      const y = rows.map(r => r[yField]).filter(v => v != null) as number[];
-      const mode = chartType === 'scatter' ? 'markers' as const
+  const traces = useMemo(() => {
+    return groups.reduce<Plotly.Data[]>((allTraces, group, groupIndex) => {
+      const defaultColor = colorForKey(group.key);
+      if (chartType === 'histogram') {
+        const rows = group.rows.filter((row) => row[xField] != null);
+        if (rows.length === 0) return allTraces;
+        allTraces.push({
+          x: rows.map((row) => row[xField]) as number[],
+          type: 'histogram' as const,
+          name: group.label,
+          marker: { color: defaultColor, opacity: 0.8 },
+          customdata: rows.map((row) => row.id),
+          hovertemplate: `%{x}<extra>${group.label}</extra>`,
+        });
+        return allTraces;
+      }
+
+      const rows = group.rows.filter((row) => row[xField] != null && row[yField] != null);
+      if (rows.length === 0) return allTraces;
+      const x = rows.map((row) => row[xField]) as number[];
+      const y = rows.map((row) => row[yField]) as number[];
+      const mode = group.isSinglePoint ? 'markers' as const
+        : chartType === 'scatter' ? 'markers' as const
         : chartType === 'line' ? 'lines+markers' as const
         : undefined;
-      return {
-        x, y,
+      const { marker, lineColor } = buildMarkerEncoding({
+        rows,
+        colorBy,
+        sizeBy,
+        symbolBy,
+        defaultColor,
+        defaultSize: 7,
+        opacity: 0.85,
+        minSize: 4,
+        maxSize: 14,
+        showColorScale: groupIndex === 0,
+      });
+      const barMarker = colorBy
+        ? {
+            color: rows.map((row) => (
+              colorBy && isNumericPlotField(colorBy)
+                ? row[colorBy] as number
+                : colorForValue(row[colorBy])
+            )),
+            ...(colorBy && isNumericPlotField(colorBy)
+              ? { colorscale: 'Viridis', colorbar: { title: getLabel(colorBy), thickness: 12, len: 0.45 } }
+              : {}),
+          }
+        : { color: defaultColor };
+      allTraces.push({
+        x,
+        y,
         type: (chartType === 'bar' ? 'bar' : 'scatter') as 'bar' | 'scatter',
         mode,
-        name: `${getLabel(groupBy as keyof RunRow)}: ${key}`,
-        marker: { color: COLORS[i % COLORS.length], size: 6 },
-        line: { width: 2 },
-      };
-    });
-  }, [successOnly, chartType, xField, yField, groupBy, getLabel]);
+        name: group.label,
+        marker: chartType === 'bar' ? barMarker : marker,
+        line: { width: 2, color: lineColor },
+        customdata: rows.map((row) => row.id),
+      });
+      return allTraces;
+    }, []);
+  }, [groups, chartType, xField, yField, colorBy, sizeBy, symbolBy, getLabel]);
 
   const layout = useMemo(() => ({
     autosize: true,
@@ -183,8 +161,8 @@ export function PlotBuilderPanel() {
       zerolinecolor: isDark ? '#555' : '#999',
     },
     legend: { orientation: 'h' as const, y: -0.2 },
-    showlegend: groupBy === AUTO_GROUP_KEY ? traces.length > 1 : !!groupBy,
-  }), [xField, yField, xScale, yScale, chartType, groupBy, traces.length, getLabel, isDark]);
+    showlegend: traces.length > 1,
+  }), [xField, yField, xScale, yScale, chartType, traces.length, getLabel, isDark]);
 
   const config = useMemo(() => ({
     responsive: true,
@@ -199,6 +177,12 @@ export function PlotBuilderPanel() {
     borderRadius: '3px', color: 'var(--text-primary)', minWidth: 0, flex: 1,
   };
   const labelStyle: React.CSSProperties = { fontSize: '10px', color: 'var(--text-muted)', marginBottom: '2px' };
+  const handlePlotClick = useCallback((event: Readonly<Plotly.PlotMouseEvent>) => {
+    const rawRunId = event.points?.[0]?.customdata;
+    if (typeof rawRunId === 'number') {
+      restoreRunById(rawRunId);
+    }
+  }, [restoreRunById]);
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -226,7 +210,7 @@ export function PlotBuilderPanel() {
           <span style={labelStyle}>X Axis</span>
           <div style={{ display: 'flex', gap: '4px' }}>
             <select value={xField as string} onChange={e => setXField(e.target.value as keyof RunRow)} style={selectStyle}>
-              {NUMERIC_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
+              {NUMERIC_PLOT_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
             </select>
             <select value={xScale} onChange={e => setXScale(e.target.value as AxisScale)} style={{ ...selectStyle, flex: 'none', width: '55px' }}>
               <option value="linear">Lin</option>
@@ -240,7 +224,7 @@ export function PlotBuilderPanel() {
             <span style={labelStyle}>Y Axis</span>
             <div style={{ display: 'flex', gap: '4px' }}>
               <select value={yField as string} onChange={e => setYField(e.target.value as keyof RunRow)} style={selectStyle}>
-                {NUMERIC_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
+                {NUMERIC_PLOT_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
               </select>
               <select value={yScale} onChange={e => setYScale(e.target.value as AxisScale)} style={{ ...selectStyle, flex: 'none', width: '55px' }}>
                 <option value="linear">Lin</option>
@@ -253,9 +237,33 @@ export function PlotBuilderPanel() {
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={labelStyle}>Group By</span>
           <select value={groupBy as string} onChange={e => setGroupBy((e.target.value || '') as keyof RunRow | '' | typeof AUTO_GROUP_KEY)} style={selectStyle}>
-            <option value={AUTO_GROUP_KEY}>Auto (Polars)</option>
+            <option value={AUTO_GROUP_KEY}>Auto (Smart)</option>
             <option value="">None</option>
-            {GROUP_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
+            {ENCODING_PLOT_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={labelStyle}>Color</span>
+          <select value={colorBy as string} onChange={e => setColorBy((e.target.value || '') as keyof RunRow | '')} style={selectStyle}>
+            <option value="">None</option>
+            {ENCODING_PLOT_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={labelStyle}>Marker Size</span>
+          <select value={sizeBy as string} onChange={e => setSizeBy((e.target.value || '') as keyof RunRow | '')} style={selectStyle}>
+            <option value="">None</option>
+            {ENCODING_PLOT_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={labelStyle}>Marker Type</span>
+          <select value={symbolBy as string} onChange={e => setSymbolBy((e.target.value || '') as keyof RunRow | '')} style={selectStyle}>
+            <option value="">None</option>
+            {ENCODING_PLOT_FIELDS.map(f => <option key={f.key as string} value={f.key as string}>{f.label}</option>)}
           </select>
         </div>
       </div>
@@ -271,10 +279,21 @@ export function PlotBuilderPanel() {
             data={traces as Plotly.Data[]}
             layout={layout as Partial<Plotly.Layout>}
             config={config}
+            onClick={handlePlotClick}
             useResizeHandler
             style={{ width: '100%', height: '100%' }}
           />
         )}
+      </div>
+      <div style={{
+        padding: '4px 10px',
+        borderTop: '1px solid var(--border-color)',
+        fontSize: '10px',
+        color: 'var(--text-muted)',
+        flexShrink: 0,
+      }}>
+        Click a plotted point to restore its historical flowfield.
+        {selectedRunId != null ? ` Current restored run: #${selectedRunId}` : ''}
       </div>
     </div>
   );
