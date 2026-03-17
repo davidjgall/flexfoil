@@ -11,6 +11,7 @@ import { DEFAULT_ROUTE_UI_STATE, useRouteUiStore } from './stores/routeUiStore';
 import { useRunStore } from './stores/runStore';
 import { useVisualizationStore } from './stores/visualizationStore';
 import { buildRouteStateSnapshot, parseRouteStateFromLocation, writeRouteState } from './lib/routeState';
+import { loadEphemeralState, mergeEphemeralIntoSnapshot, saveEphemeralState } from './lib/ephemeralState';
 import 'flexlayout-react/style/light.css';
 import './App.css';
 
@@ -130,16 +131,19 @@ function AppContent() {
   );
 
   const applyRouteSnapshot = useCallback((pathname?: string, search?: string, hash?: string) => {
-    const snapshot = parseRouteStateFromLocation({
+    const urlSnapshot = parseRouteStateFromLocation({
       pathname: pathname ?? window.location.pathname,
       search: search ?? window.location.search,
       hash: hash ?? window.location.hash,
     });
 
-    if (!snapshot) {
+    if (!urlSnapshot) {
       initializeDefaultAirfoil();
       return;
     }
+
+    const ephemeral = loadEphemeralState();
+    const snapshot = mergeEphemeralIntoSnapshot(urlSnapshot, ephemeral);
 
     basePathRef.current = snapshot.basePath;
 
@@ -254,6 +258,7 @@ function AppContent() {
         basePath: basePathRef.current,
         mode,
       });
+      saveEphemeralState(snapshot);
     }, 300);
 
     return () => window.clearTimeout(timeoutId);

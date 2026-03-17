@@ -10,14 +10,13 @@ import type {
   ThicknessControlPoint,
   VisualizationState,
 } from '../types';
-import { defaultLayoutJson, isPanelId, type PanelId } from '../layoutConfig';
+import { isPanelId, type PanelId } from '../layoutConfig';
 import {
   AUTO_GROUP_KEY,
   DEFAULT_ROUTE_UI_STATE,
   type RouteUiSnapshot,
   type RouteViewportState,
 } from '../stores/routeUiStore';
-import { DEFAULT_VISUALIZATION_STATE } from '../stores/visualizationStore';
 import { loadFromUrl, parseNacaFromName } from './urlState';
 
 export type RouteTheme = 'dark' | 'light';
@@ -41,7 +40,7 @@ interface SerializedAirfoilData {
 export interface RouteStateSnapshot {
   basePath: string;
   panel: PanelId;
-  theme: RouteTheme;
+  theme: RouteTheme | null;
   airfoil: Partial<AirfoilState> & {
     nacaCode?: string;
     nacaPoints?: number;
@@ -54,6 +53,7 @@ export interface RouteStateSnapshot {
 }
 
 export interface CanonicalRouteStateSnapshot extends RouteStateSnapshot {
+  theme: RouteTheme;
   ui: RouteUiSnapshot;
 }
 
@@ -143,17 +143,6 @@ function parseBoolean(value: string | null): boolean | undefined {
   return undefined;
 }
 
-function setBooleanParam(
-  params: URLSearchParams,
-  key: string,
-  value: boolean,
-  defaultValue: boolean,
-): void {
-  if (value !== defaultValue) {
-    params.set(key, value ? '1' : '0');
-  }
-}
-
 function setNumberParam(params: URLSearchParams, key: string, value: number, defaultValue?: number): void {
   if (defaultValue === undefined || value !== defaultValue) {
     params.set(key, String(value));
@@ -181,11 +170,6 @@ export function extractPanelFromPath(pathname: string): PanelId | null {
 function buildPathname(basePath: string, panel: PanelId): string {
   const trimmedBase = basePath === '/' ? '' : basePath.replace(/\/+$/, '');
   return `${trimmedBase}/${panel}` || `/${panel}`;
-}
-
-function isDefaultLayout(layoutJson: IJsonModel | null): boolean {
-  if (!layoutJson) return true;
-  return JSON.stringify(layoutJson) === JSON.stringify(defaultLayoutJson);
 }
 
 function toExactGeometry(airfoil: BuildRouteStateArgs['airfoil']): SerializedAirfoilData {
@@ -240,7 +224,7 @@ export function buildRouteStateSnapshot({
 
 export function serializeRouteState(snapshot: CanonicalRouteStateSnapshot, basePath: string): string {
   const params = new URLSearchParams();
-  const { airfoil, visualization, ui } = snapshot;
+  const { airfoil } = snapshot;
 
   if (airfoil.nacaCode) params.set('naca', airfoil.nacaCode);
   if (airfoil.nacaPoints !== undefined) setNumberParam(params, 'npts', airfoil.nacaPoints, DEFAULT_ROUTE_UI_STATE.libraryNPoints);
@@ -255,88 +239,10 @@ export function serializeRouteState(snapshot: CanonicalRouteStateSnapshot, baseP
   if (airfoil.camberScale !== undefined) setNumberParam(params, 'camber', airfoil.camberScale, 1);
   if (airfoil.nPanels !== undefined) setNumberParam(params, 'npan', airfoil.nPanels, 160);
   if (airfoil.curvatureWeight !== undefined) setNumberParam(params, 'curvature', airfoil.curvatureWeight, 0);
-  if (airfoil.spacingPanelMode) params.set('spacingMode', airfoil.spacingPanelMode);
-  if (airfoil.sspInterpolation) params.set('sspInterp', airfoil.sspInterpolation);
-  if (airfoil.sspVisualization) params.set('sspViz', airfoil.sspVisualization);
+
   const heavy: HeavyRouteData = {};
   if (airfoil.spacingKnots?.length) heavy.spacing = airfoil.spacingKnots;
   if (airfoil.exactGeometry) heavy.foil = airfoil.exactGeometry;
-
-  setBooleanParam(params, 'grid', visualization.showGrid ?? DEFAULT_VISUALIZATION_STATE.showGrid, DEFAULT_VISUALIZATION_STATE.showGrid);
-  setBooleanParam(params, 'curve', visualization.showCurve ?? DEFAULT_VISUALIZATION_STATE.showCurve, DEFAULT_VISUALIZATION_STATE.showCurve);
-  setBooleanParam(params, 'panels', visualization.showPanels ?? DEFAULT_VISUALIZATION_STATE.showPanels, DEFAULT_VISUALIZATION_STATE.showPanels);
-  setBooleanParam(params, 'points', visualization.showPoints ?? DEFAULT_VISUALIZATION_STATE.showPoints, DEFAULT_VISUALIZATION_STATE.showPoints);
-  setBooleanParam(params, 'controls', visualization.showControls ?? DEFAULT_VISUALIZATION_STATE.showControls, DEFAULT_VISUALIZATION_STATE.showControls);
-  setBooleanParam(params, 'streamlines', visualization.showStreamlines ?? DEFAULT_VISUALIZATION_STATE.showStreamlines, DEFAULT_VISUALIZATION_STATE.showStreamlines);
-  setBooleanParam(params, 'smoke', visualization.showSmoke ?? DEFAULT_VISUALIZATION_STATE.showSmoke, DEFAULT_VISUALIZATION_STATE.showSmoke);
-  setBooleanParam(params, 'psi', visualization.showPsiContours ?? DEFAULT_VISUALIZATION_STATE.showPsiContours, DEFAULT_VISUALIZATION_STATE.showPsiContours);
-  setBooleanParam(params, 'cp', visualization.showCp ?? DEFAULT_VISUALIZATION_STATE.showCp, DEFAULT_VISUALIZATION_STATE.showCp);
-  setBooleanParam(params, 'forces', visualization.showForces ?? DEFAULT_VISUALIZATION_STATE.showForces, DEFAULT_VISUALIZATION_STATE.showForces);
-  setBooleanParam(params, 'bl', visualization.showBoundaryLayer ?? DEFAULT_VISUALIZATION_STATE.showBoundaryLayer, DEFAULT_VISUALIZATION_STATE.showBoundaryLayer);
-  setBooleanParam(params, 'wake', visualization.showWake ?? DEFAULT_VISUALIZATION_STATE.showWake, DEFAULT_VISUALIZATION_STATE.showWake);
-  setBooleanParam(
-    params,
-    'deltaStar',
-    visualization.showDisplacementThickness ?? DEFAULT_VISUALIZATION_STATE.showDisplacementThickness,
-    DEFAULT_VISUALIZATION_STATE.showDisplacementThickness,
-  );
-  setBooleanParam(params, 'morph', visualization.enableMorphing ?? DEFAULT_VISUALIZATION_STATE.enableMorphing, DEFAULT_VISUALIZATION_STATE.enableMorphing);
-  setBooleanParam(params, 'adaptive', visualization.adaptiveStreamlines ?? DEFAULT_VISUALIZATION_STATE.adaptiveStreamlines, DEFAULT_VISUALIZATION_STATE.adaptiveStreamlines);
-  setBooleanParam(params, 'gpu', visualization.useGPU ?? DEFAULT_VISUALIZATION_STATE.useGPU, DEFAULT_VISUALIZATION_STATE.useGPU);
-  setNumberParam(params, 'morphMs', visualization.morphDuration ?? DEFAULT_VISUALIZATION_STATE.morphDuration, DEFAULT_VISUALIZATION_STATE.morphDuration);
-  setNumberParam(params, 'streamDensity', visualization.streamlineDensity ?? DEFAULT_VISUALIZATION_STATE.streamlineDensity, DEFAULT_VISUALIZATION_STATE.streamlineDensity);
-  setNumberParam(params, 'smokeDensity', visualization.smokeDensity ?? DEFAULT_VISUALIZATION_STATE.smokeDensity, DEFAULT_VISUALIZATION_STATE.smokeDensity);
-  setNumberParam(
-    params,
-    'smokeBlob',
-    visualization.smokeParticlesPerBlob ?? DEFAULT_VISUALIZATION_STATE.smokeParticlesPerBlob,
-    DEFAULT_VISUALIZATION_STATE.smokeParticlesPerBlob,
-  );
-  setNumberParam(
-    params,
-    'smokeWave',
-    visualization.smokeWaveSpacing ?? DEFAULT_VISUALIZATION_STATE.smokeWaveSpacing,
-    DEFAULT_VISUALIZATION_STATE.smokeWaveSpacing,
-  );
-  setNumberParam(params, 'flow', visualization.flowSpeed ?? DEFAULT_VISUALIZATION_STATE.flowSpeed, DEFAULT_VISUALIZATION_STATE.flowSpeed);
-  if (visualization.cpDisplayMode && visualization.cpDisplayMode !== DEFAULT_VISUALIZATION_STATE.cpDisplayMode) {
-    params.set('cpMode', visualization.cpDisplayMode);
-  }
-  setNumberParam(params, 'cpScale', visualization.cpBarScale ?? DEFAULT_VISUALIZATION_STATE.cpBarScale, DEFAULT_VISUALIZATION_STATE.cpBarScale);
-  setNumberParam(params, 'forceScale', visualization.forceScale ?? DEFAULT_VISUALIZATION_STATE.forceScale, DEFAULT_VISUALIZATION_STATE.forceScale);
-  setNumberParam(params, 'blScale', visualization.blThicknessScale ?? DEFAULT_VISUALIZATION_STATE.blThicknessScale, DEFAULT_VISUALIZATION_STATE.blThicknessScale);
-
-  if (snapshot.theme !== 'dark') params.set('theme', snapshot.theme);
-  setBooleanParam(params, 'live', ui.spacingLiveUpdate ?? DEFAULT_ROUTE_UI_STATE.spacingLiveUpdate, DEFAULT_ROUTE_UI_STATE.spacingLiveUpdate);
-  if ((ui.solveRunMode ?? DEFAULT_ROUTE_UI_STATE.solveRunMode) !== DEFAULT_ROUTE_UI_STATE.solveRunMode) {
-    params.set('runMode', ui.solveRunMode ?? DEFAULT_ROUTE_UI_STATE.solveRunMode);
-  }
-  setBooleanParam(params, 'adv', ui.solveShowAdvanced ?? DEFAULT_ROUTE_UI_STATE.solveShowAdvanced, DEFAULT_ROUTE_UI_STATE.solveShowAdvanced);
-  setNumberParam(params, 'targetCl', ui.solveTargetCl ?? DEFAULT_ROUTE_UI_STATE.solveTargetCl, DEFAULT_ROUTE_UI_STATE.solveTargetCl);
-  setNumberParam(params, 'polarStart', ui.solvePolarStart ?? DEFAULT_ROUTE_UI_STATE.solvePolarStart, DEFAULT_ROUTE_UI_STATE.solvePolarStart);
-  setNumberParam(params, 'polarEnd', ui.solvePolarEnd ?? DEFAULT_ROUTE_UI_STATE.solvePolarEnd, DEFAULT_ROUTE_UI_STATE.solvePolarEnd);
-  setNumberParam(params, 'polarStep', ui.solvePolarStep ?? DEFAULT_ROUTE_UI_STATE.solvePolarStep, DEFAULT_ROUTE_UI_STATE.solvePolarStep);
-  if ((ui.polarXAxis ?? DEFAULT_ROUTE_UI_STATE.polarXAxis) !== DEFAULT_ROUTE_UI_STATE.polarXAxis) params.set('polarX', ui.polarXAxis ?? DEFAULT_ROUTE_UI_STATE.polarXAxis);
-  if ((ui.polarYAxis ?? DEFAULT_ROUTE_UI_STATE.polarYAxis) !== DEFAULT_ROUTE_UI_STATE.polarYAxis) params.set('polarY', ui.polarYAxis ?? DEFAULT_ROUTE_UI_STATE.polarYAxis);
-  if ((ui.plotDataSource ?? DEFAULT_ROUTE_UI_STATE.plotDataSource) !== DEFAULT_ROUTE_UI_STATE.plotDataSource) params.set('plotData', ui.plotDataSource ?? DEFAULT_ROUTE_UI_STATE.plotDataSource);
-  if ((ui.plotChartType ?? DEFAULT_ROUTE_UI_STATE.plotChartType) !== DEFAULT_ROUTE_UI_STATE.plotChartType) params.set('plotType', ui.plotChartType ?? DEFAULT_ROUTE_UI_STATE.plotChartType);
-  if ((ui.plotXField ?? DEFAULT_ROUTE_UI_STATE.plotXField) !== DEFAULT_ROUTE_UI_STATE.plotXField) params.set('plotX', String(ui.plotXField ?? DEFAULT_ROUTE_UI_STATE.plotXField));
-  if ((ui.plotYField ?? DEFAULT_ROUTE_UI_STATE.plotYField) !== DEFAULT_ROUTE_UI_STATE.plotYField) params.set('plotY', String(ui.plotYField ?? DEFAULT_ROUTE_UI_STATE.plotYField));
-  if ((ui.plotGroupBy ?? DEFAULT_ROUTE_UI_STATE.plotGroupBy) !== DEFAULT_ROUTE_UI_STATE.plotGroupBy) params.set('plotGroup', String(ui.plotGroupBy ?? DEFAULT_ROUTE_UI_STATE.plotGroupBy));
-  if ((ui.plotXScale ?? DEFAULT_ROUTE_UI_STATE.plotXScale) !== DEFAULT_ROUTE_UI_STATE.plotXScale) params.set('plotXScale', ui.plotXScale ?? DEFAULT_ROUTE_UI_STATE.plotXScale);
-  if ((ui.plotYScale ?? DEFAULT_ROUTE_UI_STATE.plotYScale) !== DEFAULT_ROUTE_UI_STATE.plotYScale) params.set('plotYScale', ui.plotYScale ?? DEFAULT_ROUTE_UI_STATE.plotYScale);
-  if ((ui.dataExplorerView ?? DEFAULT_ROUTE_UI_STATE.dataExplorerView) !== DEFAULT_ROUTE_UI_STATE.dataExplorerView) params.set('dataView', ui.dataExplorerView ?? DEFAULT_ROUTE_UI_STATE.dataExplorerView);
-  if ((ui.dataExplorerSplomKeys ?? DEFAULT_ROUTE_UI_STATE.dataExplorerSplomKeys).join(',') !== DEFAULT_ROUTE_UI_STATE.dataExplorerSplomKeys.join(',')) {
-    params.set('splom', (ui.dataExplorerSplomKeys ?? DEFAULT_ROUTE_UI_STATE.dataExplorerSplomKeys).join(','));
-  }
-  if (ui.dataExplorerColorBy) params.set('colorBy', String(ui.dataExplorerColorBy));
-  if (ui.dataExplorerFilterModel) heavy.filters = ui.dataExplorerFilterModel;
-  setNumberParam(params, 'cx', ui.viewport?.centerX ?? DEFAULT_ROUTE_UI_STATE.viewport.centerX, DEFAULT_ROUTE_UI_STATE.viewport.centerX);
-  setNumberParam(params, 'cy', ui.viewport?.centerY ?? DEFAULT_ROUTE_UI_STATE.viewport.centerY, DEFAULT_ROUTE_UI_STATE.viewport.centerY);
-  setNumberParam(params, 'zoom', ui.viewport?.zoom ?? DEFAULT_ROUTE_UI_STATE.viewport.zoom, DEFAULT_ROUTE_UI_STATE.viewport.zoom);
-  if (!isDefaultLayout(ui.layoutJson ?? null)) {
-    heavy.layout = ui.layoutJson ?? defaultLayoutJson;
-  }
 
   const pathname = buildPathname(basePath, snapshot.panel);
   const search = params.toString();
@@ -428,7 +334,7 @@ export function parseRouteStateFromLocation(
       buildLegacyFallback(basePath, hash) ?? {
         basePath,
         panel,
-        theme: 'dark',
+        theme: null,
         airfoil: {},
         visualization: {},
         ui: {
@@ -447,7 +353,8 @@ export function parseRouteStateFromLocation(
   const plotGroup = params.get('plotGroup');
   const dataView = params.get('dataView');
   const splom = params.get('splom');
-  const theme = params.get('theme') === 'light' ? 'light' : 'dark';
+  const themeParam = params.get('theme');
+  const theme: RouteTheme | null = themeParam === 'light' ? 'light' : themeParam === 'dark' ? 'dark' : null;
 
   const viewport: Partial<RouteViewportState> = {};
   const centerX = parseNumber(params.get('cx'));
