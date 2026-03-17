@@ -18,6 +18,7 @@ import { DataExplorerPanel } from './panels/DataExplorerPanel';
 import { PlotBuilderPanel } from './panels/PlotBuilderPanel';
 import { CaseLogsPanel } from './panels/CaseLogsPanel';
 import { MenuBar } from './MenuBar';
+import { FeedbackWidget } from './FeedbackWidget';
 import { MobileLayout } from './MobileLayout';
 import { LayoutProvider } from '../contexts/LayoutContext';
 import { defaultLayoutJson, PANELS } from '../layoutConfig';
@@ -35,14 +36,17 @@ function BrandFooter() {
   return (
     <footer className="brand-footer">
       <span className="brand-footer__label">Powered by Flexcompute Thread</span>
-      <a
-        className="brand-footer__link"
-        href="https://www.flexcompute.com/"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Flexcompute.com
-      </a>
+      <div className="brand-footer__right">
+        <FeedbackWidget />
+        <a
+          className="brand-footer__link"
+          href="https://www.flexcompute.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Flexcompute.com
+        </a>
+      </div>
     </footer>
   );
 }

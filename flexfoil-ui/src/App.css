@@ -1044,38 +1044,43 @@ button.primary:hover {
 
 /* ── Feedback Widget ─────────────────────────────────── */
 
-.feedback-fab {
-  position: fixed;
-  bottom: 44px;
-  right: 16px;
-  z-index: 9000;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  cursor: pointer;
+.brand-footer__right {
   display: flex;
   align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-  transition: background 0.15s, color 0.15s, transform 0.15s;
+  gap: 8px;
 }
 
-.feedback-fab:hover {
+.feedback-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.feedback-trigger:hover {
   background: var(--bg-hover);
+  border-color: var(--text-muted);
   color: var(--text-primary);
-  transform: scale(1.08);
 }
 
 .feedback-panel {
   position: fixed;
-  bottom: 92px;
+  bottom: 42px;
   right: 16px;
   z-index: 9001;
   width: 340px;
-  max-height: calc(100vh - 120px);
+  max-height: calc(100vh - 60px);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 10px;
@@ -1286,10 +1291,6 @@ button.primary:hover {
     right: 8px;
     left: 8px;
     width: auto;
-    bottom: 84px;
-  }
-  .feedback-fab {
-    bottom: 36px;
-    right: 12px;
+    bottom: 42px;
   }
 }
