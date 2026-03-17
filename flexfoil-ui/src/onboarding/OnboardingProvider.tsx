@@ -265,7 +265,7 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
               // Only add skip button if challenge allows skipping
               if (!challenge.noSkip) {
                 const skipBtn = document.createElement('button');
-                skipBtn.className = 'driver-popover-skip-btn';
+                skipBtn.className = 'tour-skip-btn';
                 skipBtn.textContent = 'Skip';
                 skipBtn.onclick = () => {
                   clearChallengePolling();
