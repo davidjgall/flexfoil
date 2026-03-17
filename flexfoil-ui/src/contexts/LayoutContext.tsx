@@ -11,7 +11,7 @@ interface LayoutContextValue {
   openPanel: (panelId: string) => void;
 }
 
-const LayoutContext = createContext<LayoutContextValue | null>(null);
+export const LayoutContext = createContext<LayoutContextValue | null>(null);
 
 interface LayoutProviderProps {
   children: ReactNode;
