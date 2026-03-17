@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { DockingLayout } from './components/DockingLayout';
+import { CookieConsent } from './components/CookieConsent';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { OnboardingProvider, useOnboarding } from './onboarding';
 import { initWasm } from './lib/wasm';
+import { initAnalyticsConsent } from './lib/analytics';
 import { useAirfoilStore } from './stores/airfoilStore';
 import { DEFAULT_ROUTE_UI_STATE, useRouteUiStore } from './stores/routeUiStore';
 import { useRunStore } from './stores/runStore';
@@ -208,6 +210,7 @@ function AppContent() {
     };
 
     window.addEventListener('popstate', handlePopState);
+    initAnalyticsConsent();
     initRunDb().catch(err => console.warn('Run DB init failed:', err));
     initWasm()
       .then(() => {
@@ -270,6 +273,7 @@ function AppContent() {
   return (
     <div className="app-container">
       <DockingLayout wasmStatus={wasmStatus} />
+      <CookieConsent />
     </div>
   );
 }
