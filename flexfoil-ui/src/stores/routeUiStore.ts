@@ -127,7 +127,7 @@ export const useRouteUiStore = create<RouteUiStore>((set) => ({
   setSolveTargetCl: (solveTargetCl) => set({ solveTargetCl }),
   setSolvePolarStart: (solvePolarStart) => set({ solvePolarStart }),
   setSolvePolarEnd: (solvePolarEnd) => set({ solvePolarEnd }),
-  setSolvePolarStep: (solvePolarStep) => set({ solvePolarStep: Math.max(0.1, solvePolarStep) }),
+  setSolvePolarStep: (solvePolarStep) => set({ solvePolarStep: Math.max(0.01, solvePolarStep) }),
   setPolarXAxis: (polarXAxis) => set({ polarXAxis }),
   setPolarYAxis: (polarYAxis) => set({ polarYAxis }),
   setPlotDataSource: (plotDataSource) => set({ plotDataSource }),

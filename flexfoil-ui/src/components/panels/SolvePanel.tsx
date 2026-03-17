@@ -79,6 +79,25 @@ export function SolvePanel() {
   const alphaStep = useRouteUiStore((state) => state.solvePolarStep);
   const setAlphaStep = useRouteUiStore((state) => state.setSolvePolarStep);
 
+  const [alphaStepText, setAlphaStepText] = useState(() => String(alphaStep));
+  const alphaStepFocusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!alphaStepFocusedRef.current) {
+      setAlphaStepText(String(alphaStep));
+    }
+  }, [alphaStep]);
+
+  const commitAlphaStep = useCallback(() => {
+    alphaStepFocusedRef.current = false;
+    const parsed = parseFloat(alphaStepText);
+    if (!isNaN(parsed) && parsed >= 0.01 && isFinite(parsed)) {
+      setAlphaStep(parsed);
+    } else {
+      setAlphaStepText(String(alphaStep));
+    }
+  }, [alphaStepText, alphaStep, setAlphaStep]);
+
   // Single-point inputs
   const [targetAlpha, setTargetAlphaLocal] = useState(displayAlpha);
 
@@ -869,7 +888,16 @@ export function SolvePanel() {
             </div>
             <div>
               <label style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Step (°)</label>
-              <input type="number" value={alphaStep} onChange={(e) => setAlphaStep(parseFloat(e.target.value))} step={0.5} min={0.1} />
+              <input
+                type="number"
+                value={alphaStepText}
+                onChange={(e) => setAlphaStepText(e.target.value)}
+                onFocus={() => { alphaStepFocusedRef.current = true; }}
+                onBlur={commitAlphaStep}
+                onKeyDown={(e) => { if (e.key === 'Enter') commitAlphaStep(); }}
+                step={0.5}
+                min={0.01}
+              />
             </div>
           </div>
 
