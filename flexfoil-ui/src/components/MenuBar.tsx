@@ -101,7 +101,7 @@ export function MenuBar({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '12px',
+          gap: '6px',
           padding: '0 16px',
           borderRight: '1px solid var(--border-color)',
           height: '100%',
@@ -111,28 +111,27 @@ export function MenuBar({
           background: 'var(--brand-header-surface)',
         }}
       >
-        <FlexcomputeLogo height={22} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-          <span
-            style={{
-              fontSize: '11px',
-              fontWeight: 600,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: 'var(--brand-primary)',
-            }}
-          >
-            FlexFoil
-          </span>
-          <span
-            style={{
-              fontSize: '10px',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            by Flexcompute
-          </span>
-        </div>
+        <span
+          style={{
+            fontSize: '13px',
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: 'var(--brand-primary)',
+          }}
+        >
+          FlexFoil
+        </span>
+        <span
+          style={{
+            fontSize: '10px',
+            color: 'var(--text-secondary)',
+            alignSelf: 'center',
+          }}
+        >
+          by
+        </span>
+        <FlexcomputeLogo height={18} />
       </a>
 
       {/* File Menu */}
