@@ -612,6 +612,7 @@ export function SolvePanel() {
         if (res && fromCache) {
           points.push({ alpha: roundedAlpha, cl: res.cl ?? 0, cd: res.cd ?? 0, cm: res.cm ?? 0 });
           hits++;
+          upsertPolar({ key: polarKey, label: polarLabel, points: [...points] });
           continue;
         }
 
@@ -619,6 +620,7 @@ export function SolvePanel() {
           misses++;
           if (res.success) {
             points.push({ alpha: roundedAlpha, cl: res.cl, cd: res.cd, cm: res.cm });
+            upsertPolar({ key: polarKey, label: polarLabel, points: [...points] });
           } else {
             failures++;
             appendEvent(caseId, {
