@@ -17,6 +17,7 @@ import {
   pruneOldRuns,
   exportDatabase,
   importDatabase,
+  updateRunAirfoilName,
   type RunInsert,
 } from '../lib/runDatabase';
 import { computeAirfoilHash } from '../lib/airfoilHash';
@@ -57,6 +58,8 @@ interface RunStoreState {
   hashPanels: (panels: { x: number; y: number }[]) => Promise<string>;
   /** Restore a persisted run snapshot into the shared airfoil state */
   restoreRunById: (id: number) => boolean;
+  /** Rename the airfoil_name for a single run in the DB */
+  renameRun: (id: number, newName: string) => Promise<void>;
 
   /** Delete every row and refresh */
   clearAll: () => Promise<void>;
@@ -121,6 +124,11 @@ export const useRunStore = create<RunStoreState>()((set, get) => ({
       restorationRevision: state.restorationRevision + 1,
     }));
     return true;
+  },
+
+  renameRun: async (id, newName) => {
+    await updateRunAirfoilName(id, newName);
+    get().refresh();
   },
 
   clearAll: async () => {

@@ -2,13 +2,16 @@
  * AirfoilLibraryPanel - NACA generator and file import
  */
 
-import { useCallback } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { parseAirfoilDat } from '../../lib/airfoilImport';
 import { useAirfoilStore } from '../../stores/airfoilStore';
 import { useRouteUiStore } from '../../stores/routeUiStore';
 
 export function AirfoilLibraryPanel() {
-  const { name, generateNaca4, importAirfoil, reset } = useAirfoilStore();
+  const { name, setName, generateNaca4, importAirfoil, reset } = useAirfoilStore();
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const nacaCode = useRouteUiStore((state) => state.libraryNacaCode);
   const nPoints = useRouteUiStore((state) => state.libraryNPoints);
   const setNacaCode = useRouteUiStore((state) => state.setLibraryNacaCode);
@@ -52,18 +55,57 @@ export function AirfoilLibraryPanel() {
     <div className="panel">
       <div className="panel-header">Airfoil Library</div>
       <div className="panel-content">
-        {/* Current airfoil */}
+        {/* Current airfoil — click to rename */}
         <div className="form-group">
           <div className="form-label">Current Airfoil</div>
-          <div style={{ 
-            padding: '8px 12px', 
-            background: 'var(--bg-tertiary)', 
-            borderRadius: '4px',
-            fontWeight: 600,
-            color: 'var(--accent-primary)',
-          }}>
-            {name}
-          </div>
+          {editingName ? (
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const trimmed = draftName.trim();
+                  if (trimmed) setName(trimmed);
+                  setEditingName(false);
+                } else if (e.key === 'Escape') {
+                  setEditingName(false);
+                }
+              }}
+              onBlur={() => {
+                const trimmed = draftName.trim();
+                if (trimmed) setName(trimmed);
+                setEditingName(false);
+              }}
+              autoFocus
+              style={{
+                padding: '7px 12px',
+                background: 'var(--bg-tertiary)',
+                borderRadius: '4px',
+                fontWeight: 600,
+                color: 'var(--accent-primary)',
+                border: '1px solid var(--accent-primary)',
+                width: '100%',
+                boxSizing: 'border-box',
+              }}
+            />
+          ) : (
+            <div
+              onClick={() => { setDraftName(name); setEditingName(true); }}
+              title="Click to rename"
+              style={{
+                padding: '8px 12px',
+                background: 'var(--bg-tertiary)',
+                borderRadius: '4px',
+                fontWeight: 600,
+                color: 'var(--accent-primary)',
+                cursor: 'text',
+              }}
+            >
+              {name}
+            </div>
+          )}
         </div>
 
         {/* NACA Generator */}

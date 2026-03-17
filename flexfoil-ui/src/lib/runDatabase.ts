@@ -215,6 +215,12 @@ export function lookupCache(
   return rowToRunRow(rows[0].columns, rows[0].values[0]);
 }
 
+export async function updateRunAirfoilName(id: number, newName: string): Promise<void> {
+  const d = getDb();
+  d.run('UPDATE runs SET airfoil_name = ? WHERE id = ?', [newName, id]);
+  await persistToIdb();
+}
+
 export function queryAllRuns(): RunRow[] {
   const d = getDb();
   const rows = d.exec('SELECT * FROM runs ORDER BY id DESC');

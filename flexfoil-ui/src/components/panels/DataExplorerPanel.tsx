@@ -17,6 +17,7 @@ import {
   type ColDef,
   type GridReadyEvent,
   type FilterChangedEvent,
+  type CellValueChangedEvent,
   type GridApi,
   type CellSelectionOptions,
 } from 'ag-grid-community';
@@ -113,7 +114,7 @@ const RUN_HOVER_TEMPLATE = [
 function buildColumnDefs(): ColDef<RunRow>[] {
   return [
     { field: 'id', headerName: 'ID', width: 70, hide: true },
-    { field: 'airfoil_name', headerName: 'Airfoil', pinned: 'left', width: 140, enableRowGroup: true, chartDataType: 'category' as const },
+    { field: 'airfoil_name', headerName: 'Airfoil', pinned: 'left', width: 140, editable: true, enableRowGroup: true, chartDataType: 'category' as const },
     { field: 'alpha', headerName: 'α (°)', width: 90, chartDataType: 'series' as const, valueFormatter: p => p.value?.toFixed(2) ?? '' },
     { field: 'reynolds', headerName: 'Re', width: 120, chartDataType: 'series' as const, valueFormatter: p => p.value != null ? p.value.toExponential(2) : '' },
     { field: 'mach', headerName: 'Mach', width: 80, chartDataType: 'series' as const, valueFormatter: p => p.value?.toFixed(3) ?? '' },
@@ -155,6 +156,7 @@ export function DataExplorerPanel() {
     exportDb,
     importDb,
     restoreRunById,
+    renameRun,
     selectedRunId,
   } = useRunStore();
 
@@ -200,6 +202,14 @@ export function DataExplorerPanel() {
     setFilterModel(e.api.getFilterModel());
     setFilteredRuns(filtered);
   }, [setFilterModel, setFilteredRuns]);
+  const onCellValueChanged = useCallback((e: CellValueChangedEvent<RunRow>) => {
+    if (e.colDef.field === 'airfoil_name' && e.data && e.newValue !== e.oldValue) {
+      const trimmed = String(e.newValue ?? '').trim();
+      if (trimmed) {
+        renameRun(e.data.id, trimmed);
+      }
+    }
+  }, [renameRun]);
 
   // ── Correlogram ──
   const data = dataSource === 'full' ? allRuns : filteredRuns;
@@ -568,6 +578,7 @@ export function DataExplorerPanel() {
             defaultColDef={defaultColDef}
             onGridReady={onGridReady}
             onFilterChanged={onFilterChanged}
+            onCellValueChanged={onCellValueChanged}
             enableCharts
             enableAdvancedFilter
             cellSelection={cellSelection}
