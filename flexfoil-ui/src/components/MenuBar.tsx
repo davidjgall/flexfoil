@@ -6,7 +6,7 @@ import { useState, useRef, useEffect } from 'react';
 import { DarkModeToggle } from './DarkModeToggle';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { useOnboarding } from '../onboarding';
-import flexcomputeLogo from '../assets/flexcompute-logo.svg';
+import { FlexcomputeLogo } from './FlexcomputeLogo';
 
 const DOCUMENTATION_URL = 'https://foil.flexcompute.com/docs/';
 const FLEXCOMPUTE_URL = 'https://www.flexcompute.com/';
@@ -107,18 +107,11 @@ export function MenuBar({
           height: '100%',
           minWidth: '220px',
           textDecoration: 'none',
+          color: 'var(--text-primary)',
           background: 'var(--brand-header-surface)',
         }}
       >
-        <img
-          src={flexcomputeLogo}
-          alt="Flexcompute"
-          style={{
-            height: '22px',
-            width: 'auto',
-            display: 'block',
-          }}
-        />
+        <FlexcomputeLogo height={22} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
           <span
             style={{

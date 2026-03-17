@@ -14,7 +14,7 @@ import { DarkModeToggle } from './DarkModeToggle';
 import { LayoutContext } from '../contexts/LayoutContext';
 import { useOnboarding } from '../onboarding';
 import type { PanelId } from '../layoutConfig';
-import flexcomputeLogo from '../assets/flexcompute-logo.svg';
+import { FlexcomputeLogo } from './FlexcomputeLogo';
 
 const TABS: { id: PanelId; label: string }[] = [
   { id: 'canvas', label: 'Canvas' },
@@ -74,7 +74,7 @@ export function MobileLayout({ wasmStatus }: MobileLayoutProps) {
             rel="noopener noreferrer"
             className="mobile-header__brand"
           >
-            <img src={flexcomputeLogo} alt="Flexcompute" className="mobile-header__logo" />
+            <FlexcomputeLogo height={18} />
             <span className="mobile-header__title">FlexFoil</span>
           </a>
           <div className="mobile-header__right">

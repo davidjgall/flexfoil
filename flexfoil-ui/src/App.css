@@ -794,6 +794,7 @@ button.primary:hover {
   align-items: center;
   gap: 8px;
   text-decoration: none;
+  color: var(--text-primary);
 }
 
 .mobile-header__logo {
