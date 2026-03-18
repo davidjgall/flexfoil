@@ -24,6 +24,10 @@ export const CHANGELOG: ChangelogEntry[] = [
       { category: 'added', text: 'Flap definitions persisted in run database (flaps_json column)' },
       { category: 'fixed', text: 'Flap hinge y-coordinate was computed at arc-length midpoint instead of the actual hinge x station' },
       { category: 'fixed', text: 'Flap geometry uses XFOIL-style fold trimming to eliminate surface self-intersection at the hinge' },
+      { category: 'added', text: 'Multi-parameter sweep engine — sweep alpha, Reynolds, Mach, Ncrit, flap deflection, or flap hinge x/c' },
+      { category: 'added', text: 'Matrix sweeps — combine two sweep parameters to generate a grid of polar series' },
+      { category: 'added', text: 'Polar plot axes now include Reynolds, Mach, Ncrit, flap deflection, and flap hinge x/c' },
+      { category: 'added', text: 'Solver queue in the status bar — see running sweeps with live progress bars and cancel from anywhere' },
     ],
   },
   {

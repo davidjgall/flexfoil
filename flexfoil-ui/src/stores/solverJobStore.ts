@@ -15,6 +15,8 @@ export interface SolverJob {
   startedAt: number;
   finishedAt?: number;
   progress?: string;
+  /** 0–1 fraction for progress bar rendering */
+  progressFraction?: number;
   error?: string;
   _abort?: AbortController;
 }
@@ -25,8 +27,8 @@ interface SolverJobStore {
   /** Start a new job.  Returns an id + AbortSignal for cancellation. */
   dispatch: (label: string) => { id: string; signal: AbortSignal };
 
-  /** Update progress text on a running job. */
-  update: (id: string, progress: string) => void;
+  /** Update progress text (and optional fraction 0–1) on a running job. */
+  update: (id: string, progress: string, fraction?: number) => void;
 
   /** Mark a job as finished (success or error). */
   complete: (id: string, error?: string) => void;
@@ -57,9 +59,9 @@ export const useSolverJobStore = create<SolverJobStore>((set, get) => ({
     return { id, signal: abort.signal };
   },
 
-  update: (id, progress) =>
+  update: (id, progress, fraction) =>
     set((s) => ({
-      jobs: s.jobs.map((j) => (j.id === id ? { ...j, progress } : j)),
+      jobs: s.jobs.map((j) => (j.id === id ? { ...j, progress, progressFraction: fraction } : j)),
     })),
 
   complete: (id, error) =>

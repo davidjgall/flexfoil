@@ -13,7 +13,8 @@ import { useRunStore } from '../../stores/runStore';
 import { useCaseLogStore } from '../../stores/caseLogStore';
 import { analyzeAirfoil, analyzeAirfoilInviscid, isWasmReady, type AnalysisResult } from '../../lib/wasm';
 import { useSolverJobStore } from '../../stores/solverJobStore';
-import type { PolarPoint } from '../../types';
+import { runSweep, type SweepConfig, type SweepRunData } from '../../lib/sweepEngine';
+import type { PolarPoint, SweepParam } from '../../types';
 import type { RunInsert } from '../../lib/storageBackend';
 
 type SolveOrCacheResult = {
@@ -99,6 +100,17 @@ export function SolvePanel() {
       setAlphaStepText(String(alphaStep));
     }
   }, [alphaStepText, alphaStep, setAlphaStep]);
+
+  // Sweep state
+  const sweepPrimary = useRouteUiStore((s) => s.sweepPrimary);
+  const updateSweepPrimary = useRouteUiStore((s) => s.updateSweepPrimary);
+  const sweepSecondary = useRouteUiStore((s) => s.sweepSecondary);
+  const setSweepSecondary = useRouteUiStore((s) => s.setSweepSecondary);
+  const updateSweepSecondary = useRouteUiStore((s) => s.updateSweepSecondary);
+  const [sweepProgress, setSweepProgress] = useState<{ done: number; total: number } | null>(null);
+  const sweepAbortRef = useRef<AbortController | null>(null);
+
+  const flaps = geometryDesign.flaps;
 
   // Single-point inputs
   const [targetAlpha, setTargetAlphaLocal] = useState(displayAlpha);
@@ -324,6 +336,7 @@ export function SolvePanel() {
 
   const jobDispatch = useSolverJobStore.getState().dispatch;
   const jobComplete = useSolverJobStore.getState().complete;
+  const jobUpdate = useSolverJobStore.getState().update;
 
   const runAnalysis = useCallback(async () => {
     if (!isWasmReady() || panels.length < 3) {
@@ -623,7 +636,10 @@ export function SolvePanel() {
       const totalPoints = Math.max(0, Math.floor(((alphaEnd - alphaStart) / alphaStep) + 1 + 1e-9));
 
       for (let alpha = alphaStart, pointIndex = 0; alpha <= alphaEnd + 1e-9; alpha += alphaStep, pointIndex++) {
+        if (signal.aborted) break;
         const roundedAlpha = Math.round(alpha * 1e6) / 1e6;
+
+        jobUpdate(jobId, `${pointIndex + 1}/${totalPoints} points`, totalPoints > 0 ? (pointIndex + 1) / totalPoints : 0);
 
         const { result: res, fromCache } = await solveOrCache(roundedAlpha, airfoilHash, nPanels, {
           caseId,
@@ -699,7 +715,99 @@ export function SolvePanel() {
     }
   }, [panels, name, alphaStart, alphaEnd, alphaStep, cacheRe, cacheMach, cacheNcrit, cacheMaxIter,
       isViscous, upsertPolar, hashPanels, solveOrCache, startCase, appendEvent, finishCase, buildCaseMetadata,
-      jobDispatch, jobComplete]);
+      jobDispatch, jobComplete, jobUpdate]);
+
+  // --------------- multi-param sweep ---------------
+
+  const runMultiSweep = useCallback(async () => {
+    if (!isWasmReady() || panels.length < 3) return;
+    if (sweepAbortRef.current) sweepAbortRef.current.abort();
+    const controller = new AbortController();
+    sweepAbortRef.current = controller;
+
+    const sweepLabel = sweepSecondary
+      ? `Sweep ${sweepPrimary.param} × ${sweepSecondary.param} (${isViscous ? 'viscous' : 'inviscid'})`
+      : `Sweep ${sweepPrimary.param} ${sweepPrimary.start}→${sweepPrimary.end} (${isViscous ? 'viscous' : 'inviscid'})`;
+    const { id: jobId, signal: jobSignal } = jobDispatch(sweepLabel);
+    // Abort the sweep if the job is cancelled from the status bar
+    jobSignal.addEventListener('abort', () => controller.abort(), { once: true });
+
+    setIsRunning(true);
+    setError(null);
+    setSweepProgress({ done: 0, total: 1 });
+
+    try {
+      const base = useAirfoilStore.getState().baseCoordinates;
+      const config: SweepConfig = {
+        primary: sweepPrimary,
+        secondary: sweepSecondary,
+        alpha: displayAlpha,
+        reynolds,
+        mach,
+        ncrit,
+        maxIterations,
+        solverMode,
+        baseCoordinates: base,
+        panels,
+        flaps: geometryDesign.flaps,
+        nPanels: panels.length - 1,
+        name,
+      };
+
+      const serializePoints = (pts: { x: number; y: number }[]) =>
+        JSON.stringify(pts.map(p => ({ x: p.x, y: p.y })));
+
+      await runSweep(config, {
+        onPoint: (series) => upsertPolar(series),
+        onRun: async (data: SweepRunData) => {
+          await addRun({
+            airfoil_name: data.name,
+            airfoil_hash: data.airfoilHash,
+            alpha: data.alpha,
+            reynolds: data.reynolds,
+            mach: data.mach,
+            ncrit: data.ncrit,
+            n_panels: data.nPanels,
+            max_iter: data.maxIterations,
+            cl: data.cl,
+            cd: data.cd,
+            cm: data.cm,
+            converged: data.converged,
+            iterations: data.iterations,
+            residual: data.residual,
+            x_tr_upper: data.x_tr_upper,
+            x_tr_lower: data.x_tr_lower,
+            solver_mode: data.solverMode,
+            success: data.success,
+            error: data.error,
+            coordinates_json: null,
+            panels_json: serializePoints(data.panels),
+            flaps_json: data.flaps.length > 0 ? JSON.stringify(data.flaps) : null,
+          });
+        },
+        onProgress: (done, total) => {
+          setSweepProgress({ done, total });
+          jobUpdate(jobId, `${done}/${total} points`, done / total);
+        },
+        signal: controller.signal,
+      });
+      jobComplete(jobId);
+    } catch (e) {
+      if (!controller.signal.aborted) {
+        const msg = e instanceof Error ? e.message : 'Sweep failed';
+        setError(msg);
+        jobComplete(jobId, msg);
+      } else {
+        jobComplete(jobId, 'Cancelled');
+      }
+    } finally {
+      setIsRunning(false);
+      setSweepProgress(null);
+      sweepAbortRef.current = null;
+    }
+  }, [panels, sweepPrimary, sweepSecondary, displayAlpha, reynolds, mach, ncrit,
+      maxIterations, solverMode, geometryDesign.flaps, name, isViscous, upsertPolar, addRun,
+      jobDispatch, jobComplete, jobUpdate]);
 
   // --------------- derived ---------------
 
@@ -898,41 +1006,60 @@ export function SolvePanel() {
           </div>
         )}
 
-        {/* Polar Sweep */}
+        {/* Parameter Sweep */}
         <div className="form-group" style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }} data-tour="solve-polar">
-          <div className="form-label">Alpha Polar</div>
+          <div className="form-label">Parameter Sweep</div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-            <div>
-              <label style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Start (°)</label>
-              <input type="number" value={alphaStart} onChange={(e) => setAlphaStart(parseFloat(e.target.value))} step={1} />
-            </div>
-            <div>
-              <label style={{ fontSize: '10px', color: 'var(--text-muted)' }}>End (°)</label>
-              <input type="number" value={alphaEnd} onChange={(e) => setAlphaEnd(parseFloat(e.target.value))} step={1} />
-            </div>
-            <div>
-              <label style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Step (°)</label>
+          <SweepAxisRow
+            label="Sweep"
+            axis={sweepPrimary}
+            onUpdate={updateSweepPrimary}
+            flaps={flaps}
+          />
+
+          <div style={{ marginBottom: '6px' }}>
+            <label style={{ fontSize: '10px', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <input
-                type="number"
-                value={alphaStepText}
-                onChange={(e) => setAlphaStepText(e.target.value)}
-                onFocus={() => { alphaStepFocusedRef.current = true; }}
-                onBlur={commitAlphaStep}
-                onKeyDown={(e) => { if (e.key === 'Enter') commitAlphaStep(); }}
-                step={0.5}
-                min={0.01}
+                type="checkbox"
+                checked={sweepSecondary !== null}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSweepSecondary({ param: 'reynolds', start: 1e5, end: 1e7, step: 1e6 });
+                  } else {
+                    setSweepSecondary(null);
+                  }
+                }}
               />
-            </div>
+              Matrix sweep (second parameter)
+            </label>
           </div>
+
+          {sweepSecondary && (
+            <SweepAxisRow
+              label="Matrix"
+              axis={sweepSecondary}
+              onUpdate={updateSweepSecondary}
+              flaps={flaps}
+            />
+          )}
 
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
-              onClick={runPolar}
+              onClick={runMultiSweep}
               disabled={isRunning || !isWasmReady()}
               style={{ flex: 1 }}
             >
-              {isRunning ? 'Running...' : 'Generate Polar'}
+              {isRunning && sweepProgress
+                ? `Sweep ${sweepProgress.done}/${sweepProgress.total}`
+                : isRunning ? 'Running...' : 'Generate Sweep'}
+            </button>
+            <button
+              onClick={runPolar}
+              disabled={isRunning || !isWasmReady()}
+              title="Quick alpha polar (legacy)"
+              style={{ padding: '4px 8px', fontSize: '10px' }}
+            >
+              α Polar
             </button>
             {polarData.length > 0 && (
               <button
@@ -945,6 +1072,11 @@ export function SolvePanel() {
               </button>
             )}
           </div>
+          {sweepProgress && (
+            <div style={{ marginTop: '4px', height: '3px', background: 'var(--bg-tertiary)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${(sweepProgress.done / sweepProgress.total) * 100}%`, background: 'var(--accent-primary)', transition: 'width 0.1s' }} />
+            </div>
+          )}
           {polarData.length > 1 && (
             <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
               {polarData.length} polar series overlaid — see Polar panel
@@ -1066,6 +1198,86 @@ export function SolvePanel() {
           <div>Panels: {panels.length - 1}</div>
           <div>Solver: {isViscous ? 'XFOIL viscous' : 'Inviscid panel method'}</div>
           <div>WASM: {isWasmReady() ? '✓ Ready' : '⏳ Loading...'}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Build sweep parameter options dynamically — one entry per flap per flap-param */
+function buildSweepOptions(flaps: { id: string; name: string }[]): { value: string; param: SweepParam; label: string; flapId?: string }[] {
+  const opts: { value: string; param: SweepParam; label: string; flapId?: string }[] = [
+    { value: 'alpha', param: 'alpha', label: 'Alpha (°)' },
+    { value: 'reynolds', param: 'reynolds', label: 'Reynolds' },
+    { value: 'mach', param: 'mach', label: 'Mach' },
+    { value: 'ncrit', param: 'ncrit', label: 'Ncrit' },
+  ];
+  for (const f of flaps) {
+    opts.push({ value: `flapDeflection:${f.id}`, param: 'flapDeflection', label: `${f.name} δ (°)`, flapId: f.id });
+    opts.push({ value: `flapHingeX:${f.id}`, param: 'flapHingeX', label: `${f.name} x/c`, flapId: f.id });
+  }
+  return opts;
+}
+
+const SWEEP_DEFAULTS: Record<SweepParam, { start: number; end: number; step: number }> = {
+  alpha: { start: -5, end: 15, step: 1 },
+  reynolds: { start: 1e5, end: 1e7, step: 1e6 },
+  mach: { start: 0, end: 0.6, step: 0.1 },
+  ncrit: { start: 4, end: 12, step: 1 },
+  flapDeflection: { start: -10, end: 20, step: 5 },
+  flapHingeX: { start: 0.6, end: 0.9, step: 0.05 },
+};
+
+function SweepAxisRow({ label, axis, onUpdate, flaps }: {
+  label: string;
+  axis: { param: SweepParam; start: number; end: number; step: number; flapId?: string };
+  onUpdate: (partial: Partial<typeof axis>) => void;
+  flaps: { id: string; name: string }[];
+}) {
+  const options = buildSweepOptions(flaps);
+
+  // Current composite value for the dropdown (param or param:flapId)
+  const isFlapParam = axis.param === 'flapDeflection' || axis.param === 'flapHingeX';
+  const selectedValue = isFlapParam && axis.flapId
+    ? `${axis.param}:${axis.flapId}`
+    : axis.param;
+
+  return (
+    <div style={{ marginBottom: '8px' }}>
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '4px', alignItems: 'center' }}>
+        <span style={{ fontSize: '10px', color: 'var(--text-muted)', minWidth: '36px' }}>{label}:</span>
+        <select
+          value={selectedValue}
+          onChange={(e) => {
+            const opt = options.find(o => o.value === e.target.value);
+            if (!opt) return;
+            const defaults = SWEEP_DEFAULTS[opt.param];
+            onUpdate({ param: opt.param, ...defaults, flapId: opt.flapId });
+          }}
+          style={{ flex: 1, fontSize: '11px' }}
+        >
+          {options.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+      {flaps.length === 0 && (
+        <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px', fontStyle: 'italic' }}>
+          Define flaps in Geometry Control to enable flap sweeps
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px' }}>
+        <div>
+          <label style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Start</label>
+          <input type="number" value={axis.start} onChange={(e) => onUpdate({ start: parseFloat(e.target.value) || 0 })} step={axis.step} />
+        </div>
+        <div>
+          <label style={{ fontSize: '9px', color: 'var(--text-muted)' }}>End</label>
+          <input type="number" value={axis.end} onChange={(e) => onUpdate({ end: parseFloat(e.target.value) || 0 })} step={axis.step} />
+        </div>
+        <div>
+          <label style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Step</label>
+          <input type="number" value={axis.step} onChange={(e) => onUpdate({ step: parseFloat(e.target.value) || 1 })} step={axis.step * 0.1} min={0.001} />
         </div>
       </div>
     </div>

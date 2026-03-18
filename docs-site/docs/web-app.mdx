@@ -44,11 +44,18 @@ Configure and run single-point analysis. Set angle of attack, Reynolds number,
 Mach number, and N_crit. Toggle between viscous and inviscid modes. Results
 update in real time.
 
+### Parameter Sweep
+
+Sweep any solver or geometry parameter: alpha, Reynolds, Mach, Ncrit, flap
+deflection, or flap hinge x/c. Optionally enable a **matrix sweep** with a
+second parameter to generate a grid of polar series (e.g., alpha vs Reynolds,
+or flap deflection vs Ncrit). Results plot as overlaid series in the Polar panel.
+
 ### Polar Plot
 
-Run alpha sweeps and visualize CL-alpha, CD-alpha, CL-CD, and CM-alpha curves.
-Overlay multiple series (different airfoils or Reynolds numbers) for direct
-comparison.
+Visualize sweep results with configurable axes — CL, CD, CM, L/D, alpha,
+Reynolds, Mach, Ncrit, flap deflection, and flap hinge x/c. Overlay
+multiple series for direct comparison.
 
 ### Visualization
 
@@ -78,6 +85,21 @@ and trade-off visualization.
 View the solver's internal convergence log for the current case — Newton
 iterations, residuals, and boundary layer events.
 
+### Solver Queue (Status Bar)
+
+The status indicator in the bottom-right corner of the window shows what the
+solver is currently doing. Click it to expand the **Solver Queue** popover:
+
+- **Running jobs** display a live progress bar and point counter (e.g.,
+  *12/21 points*).
+- **Cancel** any running sweep or polar directly from the queue.
+- **Completed and failed** jobs remain in the history until cleared.
+
+All sweep types — single-parameter sweeps, matrix sweeps, and legacy alpha
+polars — register in the queue automatically. The inline indicator pulses
+yellow while a job is active and shows a mini progress bar so you can track
+long sweeps without switching panels.
+
 ## Design modes
 
 ### Geometry Design (GDES)
@@ -89,12 +111,17 @@ Direct geometry manipulation tools:
 - **Leading-edge radius** — scale the LE radius
 - **Camber/thickness splines** — interactive control points for shape editing
 
-### Inverse Design (QDES)
+### Inverse Design (QDES / MDES)
 
-Mixed-inverse design mode: prescribe a target pressure distribution (Cp or
+:::caution Experimental
+QDES and MDES are works in progress and may produce unexpected results.
+:::
+
+Mixed-inverse design mode (QDES): prescribe a target pressure distribution (Cp or
 velocity) on part of the airfoil surface, and the solver computes the geometry
-that produces it. Useful for designing airfoils to meet specific aerodynamic
-targets.
+that produces it. Full-inverse mode (MDES) designs an entire airfoil from a
+velocity distribution via circle-plane conformal mapping. Both are useful for
+designing airfoils to meet specific aerodynamic targets.
 
 ## Sharing and persistence
 
