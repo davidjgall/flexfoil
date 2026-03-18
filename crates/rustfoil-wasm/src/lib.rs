@@ -22,7 +22,7 @@
 //! const solution = foil.solve();
 //! ```
 
-use rustfoil_core::{naca, point, Body, CubicSpline, Point};
+use rustfoil_core::{naca, point, Body, CubicSpline, Point, flap::xfoil_flap};
 use rustfoil_inviscid::{FlowConditions as FaithfulFlowConditions, InviscidSolver as FaithfulInviscidSolver};
 use rustfoil_solver::inviscid::{
     FlowConditions, InviscidSolver,
@@ -2726,7 +2726,7 @@ pub fn gdes_flap(coords: &[f64], hinge_x_frac: f64, hinge_y_frac: f64, deflectio
             if pts.len() < 4 {
                 geometry_error("Need at least 4 points")
             } else {
-                let modified = flap_impl(&pts, hinge_x_frac, hinge_y_frac, deflection_deg);
+                let modified = xfoil_flap(&pts, hinge_x_frac, hinge_y_frac, deflection_deg);
                 GeometryResult { coords: points_to_flat(&modified), success: true, error: None }
             }
         }
