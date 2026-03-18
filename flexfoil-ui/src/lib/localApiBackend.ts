@@ -5,7 +5,7 @@
  * All data lives in a real SQLite file on disk.
  */
 
-import type { RunRow, SolverMode, AirfoilPoint, RunGeometrySnapshot } from '../types';
+import type { RunRow, SolverMode, AirfoilPoint, FlapDefinition, RunGeometrySnapshot } from '../types';
 import type { StorageBackend, RunInsert } from './storageBackend';
 import { getApiBase } from './storageBackend';
 
@@ -33,7 +33,24 @@ function parseGeometrySnapshot(
   return { coordinates, panels };
 }
 
+function parseFlapsJson(json: unknown): FlapDefinition[] | null {
+  if (typeof json !== 'string' || json.trim() === '') return null;
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter(
+      (f: any): f is FlapDefinition =>
+        typeof f === 'object' && f !== null &&
+        typeof f.hingeX === 'number' &&
+        typeof f.deflection === 'number',
+    );
+  } catch {
+    return null;
+  }
+}
+
 function apiRowToRunRow(obj: Record<string, unknown>): RunRow {
+  const flaps = parseFlapsJson(obj.flaps_json);
   return {
     id: obj.id as number,
     airfoil_name: obj.airfoil_name as string,
@@ -58,10 +75,13 @@ function apiRowToRunRow(obj: Record<string, unknown>): RunRow {
     created_at: obj.created_at as string,
     session_id: obj.session_id as string | null,
     geometry_snapshot: parseGeometrySnapshot(obj.coordinates_json, obj.panels_json),
+    flaps,
     ld:
       obj.cl != null && obj.cd != null && Math.abs(obj.cd as number) > 1e-10
         ? (obj.cl as number) / (obj.cd as number)
         : null,
+    flap_deflection: flaps && flaps.length > 0 ? flaps[0].deflection : null,
+    flap_hinge_x: flaps && flaps.length > 0 ? flaps[0].hingeX : null,
   };
 }
 
