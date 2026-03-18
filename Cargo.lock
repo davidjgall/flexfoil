@@ -662,6 +662,7 @@ name = "rustfoil-python"
 version = "0.1.0"
 dependencies = [
  "pyo3",
+ "rayon",
  "rustfoil-core",
  "rustfoil-inviscid",
  "rustfoil-solver",

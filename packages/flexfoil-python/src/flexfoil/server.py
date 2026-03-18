@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from starlette.applications import Starlette
+from starlette.exceptions import HTTPException
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -187,14 +188,26 @@ _LOCAL_META_TAG = '<meta name="flexfoil-local" content="true">'
 _index_html_cache: str | None = None
 
 
-async def _serve_index(request: Request) -> Response:
-    """Serve index.html with a local-mode meta tag injected."""
+def _make_index_response() -> Response:
+    """Return index.html with the local-mode meta tag injected."""
     global _index_html_cache
     if _index_html_cache is None:
         index_path = STATIC_DIR / "index.html"
         raw = index_path.read_text()
         _index_html_cache = raw.replace("<head>", f"<head>\n    {_LOCAL_META_TAG}", 1)
     return Response(_index_html_cache, media_type="text/html")
+
+
+class _SPAStaticFiles(StaticFiles):
+    """StaticFiles with SPA fallback — unknown paths serve index.html."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as ex:
+            if ex.status_code == 404:
+                return _make_index_response()
+            raise
 
 
 def _build_routes() -> list:
@@ -213,10 +226,7 @@ def _build_routes() -> list:
         Route("/api/events", sse_endpoint),
     ]
     if STATIC_DIR.is_dir():
-        # Serve index.html with the local-mode meta tag at / and any SPA
-        # fallback path; serve other static assets normally.
-        routes.append(Route("/", _serve_index))
-        routes.append(Mount("/", app=StaticFiles(directory=str(STATIC_DIR), html=False)))
+        routes.append(Mount("/", app=_SPAStaticFiles(directory=str(STATIC_DIR), html=False)))
     return routes
 
 
