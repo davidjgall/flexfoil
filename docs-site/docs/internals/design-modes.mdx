@@ -159,9 +159,10 @@ GDES provides **direct geometry modifications** — no flow solve involved. Thes
 1. Switch to **Geometry** mode in the Control panel
 2. Click **Add Flap** to create one or more flap definitions
 3. For each flap, set hinge x/c, hinge y/t (fraction of local thickness), and deflection
-4. Click **Apply** — all flaps are applied sequentially, then repaneled once
-5. Flap definitions are editable until applied; TE gap and LE radius sections remain unchanged
-6. Use undo (Cmd+Z) to revert the geometry
+4. Geometry updates **instantly** as sliders change — no "Apply" button needed
+5. Flaps are always re-derived from `baseCoordinates` (the pre-flap shape), so they remain fully editable
+6. TE gap and LE radius are separate "Apply" operations that update the base shape
+7. Use undo (Cmd+Z) to revert the geometry
 
 ### Flap Object Model
 
@@ -180,17 +181,27 @@ Flap definitions are stored alongside each run in the `flaps_json` database colu
 
 ### Flap Implementation Detail
 
-Before rotating, break points are inserted on both surfaces at the hinge x-station to ensure a clean geometric discontinuity. The hinge y-coordinate is interpolated from the upper and lower surface y values at the hinge x-location and positioned according to `hingeYFrac`:
+The implementation follows XFOIL's GDES FLAP approach, adapted for a high-resolution intermediate representation:
+
+1. **High-res spline**: The base airfoil is repaneled to 1000 points before flap application. This dense point cloud ensures the hinge region has sub-0.001c point spacing.
+
+2. **Surface split**: The airfoil is split into upper and lower surfaces (LE-to-TE ordered).
+
+3. **Rotation**: For each surface, points aft of the hinge are rotated about `(hinge_x, hinge_y)`:
 
 ```
 y_hinge = y_lower + hingeYFrac × (y_upper - y_lower)
 
-For each point p where p.x ≥ hinge_x:
+For each aft point p (x > hinge_x):
     dx = p.x - hinge_x
     dy = p.y - y_hinge
-    p.x = hinge_x + dx·cos(δ) + dy·sin(δ)
-    p.y = y_hinge - dx·sin(δ) + dy·cos(δ)
+    p.x' = hinge_x + dx·cos(δ) + dy·sin(δ)
+    p.y' = y_hinge - dx·sin(δ) + dy·cos(δ)
 ```
+
+4. **Fold trimming**: On the surface where the rotated flap folds back over the fixed portion (lower surface for downward deflection), a segment-segment intersection test finds the exact break point — equivalent to XFOIL's `SSS` subroutine. All points in the folded region are deleted and the surfaces are joined at the intersection.
+
+5. **Repanel**: The 1000-point flapped geometry is repaneled down to the solver's panel count.
 
 ### TE Gap Implementation Detail
 
