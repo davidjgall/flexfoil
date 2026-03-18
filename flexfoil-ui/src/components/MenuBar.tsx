@@ -23,8 +23,9 @@ interface MenuBarProps {
   panels: PanelInfo[];
   closedPanels: Set<string>;
   onRestorePanel: (panelId: string) => void;
-  onOpenPanel: (panelId: string) => void;  // Focus/select an existing panel
+  onOpenPanel: (panelId: string) => void;
   onResetLayout: () => void;
+  onOpenPalette?: () => void;
   wasmStatus: 'loading' | 'ready' | 'error';
 }
 
@@ -34,6 +35,7 @@ export function MenuBar({
   onRestorePanel,
   onOpenPanel,
   onResetLayout,
+  onOpenPalette,
   wasmStatus,
 }: MenuBarProps) {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
@@ -326,6 +328,49 @@ export function MenuBar({
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />
+
+      {/* Command palette trigger */}
+      {onOpenPalette && (
+        <button
+          onClick={onOpenPalette}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            height: 28,
+            padding: '0 10px',
+            marginRight: 8,
+            background: 'var(--bg-tertiary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 6,
+            color: 'var(--text-muted)',
+            fontSize: 12,
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          title="Search panels, features, and actions"
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ opacity: 0.6 }}>
+            <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M11 11L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          <span>Search...</span>
+          <kbd
+            style={{
+              padding: '1px 5px',
+              fontSize: 10,
+              fontFamily: 'var(--font-mono)',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 3,
+              color: 'var(--text-muted)',
+              lineHeight: '14px',
+            }}
+          >
+            {navigator.platform?.includes('Mac') ? '⌘K' : 'Ctrl+K'}
+          </kbd>
+        </button>
+      )}
 
       {/* Restore Tutorial Button - shows after tutorial has been dismissed */}
       <RestoreTutorialButton />

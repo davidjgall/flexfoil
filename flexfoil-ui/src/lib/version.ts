@@ -42,6 +42,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       { category: 'added', text: 'Solver result caching — repeated sweeps skip already-computed points and display cache hit stats' },
       { category: 'added', text: "What's New feature tour shown automatically on version update" },
       { category: 'added', text: 'Automatic IQR-based outlier removal toggle in Polar plot, Plot Builder, and Data Explorer' },
+      { category: 'added', text: 'Command palette (Cmd+K) — fuzzy search across panels, features, actions, and tutorials' },
     ],
     tourSlides: [
       {

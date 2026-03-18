@@ -18,6 +18,7 @@ import { DataExplorerPanel } from './panels/DataExplorerPanel';
 import { PlotBuilderPanel } from './panels/PlotBuilderPanel';
 import { CaseLogsPanel } from './panels/CaseLogsPanel';
 import { MenuBar } from './MenuBar';
+import { CommandPalette } from './CommandPalette';
 import { FeedbackWidget } from './FeedbackWidget';
 import { SolverStatusIndicator } from './SolverStatusBar';
 import { MobileLayout } from './MobileLayout';
@@ -98,12 +99,25 @@ export function DockingLayout({ wasmStatus }: DockingLayoutProps) {
 }
 
 function DesktopLayout({ wasmStatus }: DockingLayoutProps) {
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const layoutJson = useRouteUiStore((state) => state.layoutJson);
   const layoutRevision = useRouteUiStore((state) => state.layoutRevision);
   const activePanel = useRouteUiStore((state) => state.activePanel);
   const activePanelRevision = useRouteUiStore((state) => state.activePanelRevision);
   const setLayoutJson = useRouteUiStore((state) => state.setLayoutJson);
   const setActivePanel = useRouteUiStore((state) => state.setActivePanel);
+
+  // Cmd+K / Ctrl+K to open command palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // Initialize model from localStorage or default
   const [model, setModel] = useState(() => {
@@ -413,6 +427,7 @@ function DesktopLayout({ wasmStatus }: DockingLayoutProps) {
           onRestorePanel={handleRestorePanel}
           onOpenPanel={handleOpenPanel}
           onResetLayout={handleResetLayout}
+          onOpenPalette={() => setPaletteOpen(true)}
           wasmStatus={wasmStatus}
         />
 
@@ -428,6 +443,11 @@ function DesktopLayout({ wasmStatus }: DockingLayoutProps) {
         </div>
         <BrandFooter />
       </div>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onResetLayout={handleResetLayout}
+      />
     </LayoutProvider>
   );
 }
