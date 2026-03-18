@@ -76,13 +76,10 @@ export function SolvePanel() {
   const targetCl = useRouteUiStore((state) => state.solveTargetCl);
   const setTargetCl = useRouteUiStore((state) => state.setSolveTargetCl);
   const alphaStart = useRouteUiStore((state) => state.solvePolarStart);
-  const setAlphaStart = useRouteUiStore((state) => state.setSolvePolarStart);
   const alphaEnd = useRouteUiStore((state) => state.solvePolarEnd);
-  const setAlphaEnd = useRouteUiStore((state) => state.setSolvePolarEnd);
   const alphaStep = useRouteUiStore((state) => state.solvePolarStep);
-  const setAlphaStep = useRouteUiStore((state) => state.setSolvePolarStep);
 
-  const [alphaStepText, setAlphaStepText] = useState(() => String(alphaStep));
+  const [_alphaStepText, setAlphaStepText] = useState(() => String(alphaStep));
   const alphaStepFocusedRef = useRef(false);
 
   useEffect(() => {
@@ -90,16 +87,6 @@ export function SolvePanel() {
       setAlphaStepText(String(alphaStep));
     }
   }, [alphaStep]);
-
-  const commitAlphaStep = useCallback(() => {
-    alphaStepFocusedRef.current = false;
-    const parsed = parseFloat(alphaStepText);
-    if (!isNaN(parsed) && parsed >= 0.01 && isFinite(parsed)) {
-      setAlphaStep(parsed);
-    } else {
-      setAlphaStepText(String(alphaStep));
-    }
-  }, [alphaStepText, alphaStep, setAlphaStep]);
 
   // Sweep state
   const sweepPrimary = useRouteUiStore((s) => s.sweepPrimary);
@@ -347,7 +334,7 @@ export function SolvePanel() {
     const jobLabel = runMode === 'alpha'
       ? `${isViscous ? 'Viscous' : 'Inviscid'} @ alpha=${targetAlpha.toFixed(1)}`
       : `${isViscous ? 'Viscous' : 'Inviscid'} -> CL=${targetCl.toFixed(3)}`;
-    const { id: jobId, signal } = jobDispatch(jobLabel);
+    const { id: jobId, signal: _signal } = jobDispatch(jobLabel);
 
     setIsRunning(true);
     setError(null);
