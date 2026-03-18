@@ -1,25 +1,18 @@
 /**
  * Zustand store for run data management.
  *
- * Bridges the SQLite database and React UI — exposes rows,
+ * Bridges the storage backend and React UI — exposes rows,
  * filtered rows (from AG Grid), and mutation helpers.
+ *
+ * The backend is selected at startup: sql.js+IndexedDB (browser) or
+ * REST API to the local Python server (local mode).
  */
 
 import { create } from 'zustand';
 import type { RunRow } from '../types';
-import {
-  initRunDatabase,
-  ensureRunDatabase,
-  insertRun,
-  lookupCache,
-  queryAllRuns,
-  clearAllRuns,
-  pruneOldRuns,
-  exportDatabase,
-  importDatabase,
-  updateRunAirfoilName,
-  type RunInsert,
-} from '../lib/runDatabase';
+import type { RunInsert } from '../lib/storageBackend';
+export type { RunInsert } from '../lib/storageBackend';
+import { getBackend } from '../lib/activeBackend';
 import { computeAirfoilHash } from '../lib/airfoilHash';
 import { pauseHistory, resumeHistory, useAirfoilStore } from './airfoilStore';
 
@@ -44,6 +37,8 @@ interface RunStoreState {
 
   /** Insert a new run (returns the cached-or-new row) */
   addRun: (run: RunInsert) => Promise<void>;
+  /** Batch-insert runs in one transaction, refresh once at the end */
+  addRunBatch: (runs: RunInsert[]) => Promise<void>;
   /** Look up a cached result; returns null on miss */
   lookup: (
     airfoilHash: string,
@@ -78,32 +73,48 @@ export const useRunStore = create<RunStoreState>()((set, get) => ({
 
   init: async () => {
     if (get().ready) return;
-    await initRunDatabase();
-    const rows = queryAllRuns();
+    const backend = getBackend();
+    await backend.init();
+    const rows = backend.queryAllRuns();
     set({ allRuns: rows, filteredRuns: rows, ready: true });
+
+    // Subscribe to external changes (e.g. SSE from local Python server)
+    backend.onExternalChange?.(() => get().refresh());
   },
 
   refresh: () => {
-    const rows = queryAllRuns();
+    const rows = getBackend().queryAllRuns();
     set({ allRuns: rows, filteredRuns: rows });
   },
 
   setFilteredRuns: (rows) => set({ filteredRuns: rows }),
 
   addRun: async (run) => {
-    await ensureRunDatabase();
+    const backend = getBackend();
     if (!get().ready) {
-      const rows = queryAllRuns();
-      set({ allRuns: rows, filteredRuns: rows, ready: true });
+      await backend.init();
+      set({ ready: true });
     }
-    await insertRun(run);
-    await pruneOldRuns();
+    await backend.insertRun(run);
+    await backend.pruneOldRuns();
+    get().refresh();
+  },
+
+  addRunBatch: async (runs) => {
+    if (runs.length === 0) return;
+    const backend = getBackend();
+    if (!get().ready) {
+      await backend.init();
+      set({ ready: true });
+    }
+    await backend.insertRunBatch(runs);
+    await backend.pruneOldRuns();
     get().refresh();
   },
 
   lookup: (hash, alpha, re, mach, ncrit, nPanels, maxIter) => {
     try {
-      return lookupCache(hash, alpha, re, mach, ncrit, nPanels, maxIter);
+      return getBackend().lookupCache(hash, alpha, re, mach, ncrit, nPanels, maxIter);
     } catch {
       return null;
     }
@@ -127,19 +138,19 @@ export const useRunStore = create<RunStoreState>()((set, get) => ({
   },
 
   renameRun: async (id, newName) => {
-    await updateRunAirfoilName(id, newName);
+    await getBackend().updateRunAirfoilName(id, newName);
     get().refresh();
   },
 
   clearAll: async () => {
-    await clearAllRuns();
+    await getBackend().clearAllRuns();
     set({ allRuns: [], filteredRuns: [], selectedRunId: null, restorationRevision: 0 });
   },
 
-  exportDb: () => exportDatabase(),
+  exportDb: () => getBackend().exportDatabase(),
 
   importDb: async (data) => {
-    await importDatabase(data);
+    await getBackend().importDatabase(data);
     get().refresh();
   },
 }));

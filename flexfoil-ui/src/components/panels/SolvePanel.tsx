@@ -7,13 +7,15 @@
  */
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { useAirfoilStore } from '../../stores/airfoilStore';
+import { useAirfoilStore, clearPolarSuppression } from '../../stores/airfoilStore';
 import { useRouteUiStore } from '../../stores/routeUiStore';
 import { useRunStore } from '../../stores/runStore';
 import { useCaseLogStore } from '../../stores/caseLogStore';
 import { analyzeAirfoil, analyzeAirfoilInviscid, isWasmReady, type AnalysisResult } from '../../lib/wasm';
-import type { PolarPoint } from '../../types';
-import type { RunInsert } from '../../lib/runDatabase';
+import { useSolverJobStore } from '../../stores/solverJobStore';
+import { runSweep, type SweepConfig, type SweepRunData } from '../../lib/sweepEngine';
+import type { PolarPoint, SweepParam } from '../../types';
+import type { RunInsert } from '../../lib/storageBackend';
 
 type SolveOrCacheResult = {
   result: AnalysisResult | null;
@@ -51,6 +53,7 @@ export function SolvePanel() {
     ncrit,
     maxIterations,
     solverMode,
+    geometryDesign,
     setDisplayAlpha,
     setReynolds,
     setMach,
@@ -97,6 +100,17 @@ export function SolvePanel() {
       setAlphaStepText(String(alphaStep));
     }
   }, [alphaStepText, alphaStep, setAlphaStep]);
+
+  // Sweep state
+  const sweepPrimary = useRouteUiStore((s) => s.sweepPrimary);
+  const updateSweepPrimary = useRouteUiStore((s) => s.updateSweepPrimary);
+  const sweepSecondary = useRouteUiStore((s) => s.sweepSecondary);
+  const setSweepSecondary = useRouteUiStore((s) => s.setSweepSecondary);
+  const updateSweepSecondary = useRouteUiStore((s) => s.updateSweepSecondary);
+  const [sweepProgress, setSweepProgress] = useState<{ done: number; total: number } | null>(null);
+  const sweepAbortRef = useRef<AbortController | null>(null);
+
+  const flaps = geometryDesign.flaps;
 
   // Single-point inputs
   const [targetAlpha, setTargetAlphaLocal] = useState(displayAlpha);
@@ -284,6 +298,9 @@ export function SolvePanel() {
       error: res.error ?? null,
       coordinates_json: serializePoints(coordinates),
       panels_json: serializePoints(panels),
+      flaps_json: geometryDesign.flaps.length > 0
+        ? JSON.stringify(geometryDesign.flaps)
+        : null,
     };
     await addRun(run);
 
@@ -317,11 +334,20 @@ export function SolvePanel() {
 
   // --------------- single-point ---------------
 
+  const jobDispatch = useSolverJobStore.getState().dispatch;
+  const jobComplete = useSolverJobStore.getState().complete;
+  const jobUpdate = useSolverJobStore.getState().update;
+
   const runAnalysis = useCallback(async () => {
     if (!isWasmReady() || panels.length < 3) {
       setError('WASM not ready or insufficient geometry');
       return;
     }
+
+    const jobLabel = runMode === 'alpha'
+      ? `${isViscous ? 'Viscous' : 'Inviscid'} @ alpha=${targetAlpha.toFixed(1)}`
+      : `${isViscous ? 'Viscous' : 'Inviscid'} -> CL=${targetCl.toFixed(3)}`;
+    const { id: jobId, signal } = jobDispatch(jobLabel);
 
     setIsRunning(true);
     setError(null);
@@ -516,6 +542,7 @@ export function SolvePanel() {
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unknown error';
       setError(message);
+      jobComplete(jobId, message);
       if (caseId) {
         appendEvent(caseId, {
           level: 'error',
@@ -529,6 +556,7 @@ export function SolvePanel() {
       }
     } finally {
       setIsRunning(false);
+      jobComplete(jobId);
     }
   }, [
     panels,
@@ -543,6 +571,8 @@ export function SolvePanel() {
     appendEvent,
     finishCase,
     buildCaseMetadata,
+    jobDispatch,
+    jobComplete,
   ]);
 
   // --------------- polar sweep ---------------
@@ -552,6 +582,12 @@ export function SolvePanel() {
       setError('WASM not ready or insufficient geometry');
       return;
     }
+
+    clearPolarSuppression();
+
+    const { id: jobId, signal } = jobDispatch(
+      `Polar ${alphaStart.toFixed(0)} to ${alphaEnd.toFixed(0)} (${isViscous ? 'viscous' : 'inviscid'})`
+    );
 
     setIsRunning(true);
     setError(null);
@@ -602,7 +638,10 @@ export function SolvePanel() {
       const totalPoints = Math.max(0, Math.floor(((alphaEnd - alphaStart) / alphaStep) + 1 + 1e-9));
 
       for (let alpha = alphaStart, pointIndex = 0; alpha <= alphaEnd + 1e-9; alpha += alphaStep, pointIndex++) {
+        if (signal.aborted) break;
         const roundedAlpha = Math.round(alpha * 1e6) / 1e6;
+
+        jobUpdate(jobId, `${pointIndex + 1}/${totalPoints} points`, totalPoints > 0 ? (pointIndex + 1) / totalPoints : 0);
 
         const { result: res, fromCache } = await solveOrCache(roundedAlpha, airfoilHash, nPanels, {
           caseId,
@@ -674,9 +713,135 @@ export function SolvePanel() {
       }
     } finally {
       setIsRunning(false);
+      jobComplete(jobId);
     }
   }, [panels, name, alphaStart, alphaEnd, alphaStep, cacheRe, cacheMach, cacheNcrit, cacheMaxIter,
-      isViscous, upsertPolar, hashPanels, solveOrCache, startCase, appendEvent, finishCase, buildCaseMetadata]);
+      isViscous, upsertPolar, hashPanels, solveOrCache, startCase, appendEvent, finishCase, buildCaseMetadata,
+      jobDispatch, jobComplete, jobUpdate]);
+
+  // --------------- multi-param sweep ---------------
+
+  const { addRunBatch } = useRunStore();
+
+  const runMultiSweep = useCallback(async () => {
+    if (!isWasmReady() || panels.length < 3) return;
+    clearPolarSuppression();
+    if (sweepAbortRef.current) sweepAbortRef.current.abort();
+    const controller = new AbortController();
+    sweepAbortRef.current = controller;
+
+    const sweepLabel = sweepSecondary
+      ? `Sweep ${sweepPrimary.param} × ${sweepSecondary.param} (${isViscous ? 'viscous' : 'inviscid'})`
+      : `Sweep ${sweepPrimary.param} ${sweepPrimary.start}→${sweepPrimary.end} (${isViscous ? 'viscous' : 'inviscid'})`;
+    const { id: jobId, signal: jobSignal } = jobDispatch(sweepLabel);
+    jobSignal.addEventListener('abort', () => controller.abort(), { once: true });
+
+    setIsRunning(true);
+    setError(null);
+    setSweepProgress({ done: 0, total: 1 });
+
+    try {
+      // Ensure DB is ready before collecting runs
+      if (!useRunStore.getState().ready) {
+        await useRunStore.getState().init();
+      }
+
+      let pendingRuns: Parameters<typeof addRun>[0][] = [];
+      let dbOk = 0;
+      let dbFail = 0;
+
+      const flushPending = async () => {
+        if (pendingRuns.length === 0) return;
+        const batch = pendingRuns;
+        pendingRuns = [];
+        try {
+          await addRunBatch(batch);
+          dbOk += batch.length;
+        } catch (err) {
+          dbFail += batch.length;
+          console.warn('[sweep] batch insert failed:', err);
+        }
+      };
+
+      const base = useAirfoilStore.getState().baseCoordinates;
+      const config: SweepConfig = {
+        primary: sweepPrimary,
+        secondary: sweepSecondary,
+        alpha: displayAlpha,
+        reynolds,
+        mach,
+        ncrit,
+        maxIterations,
+        solverMode,
+        baseCoordinates: base,
+        panels,
+        flaps: geometryDesign.flaps,
+        nPanels: panels.length - 1,
+        name,
+      };
+
+      const serializePoints = (pts: { x: number; y: number }[]) =>
+        JSON.stringify(pts.map(p => ({ x: p.x, y: p.y })));
+
+      await runSweep(config, {
+        onPoint: (series) => upsertPolar(series),
+        onRun: (data: SweepRunData) => {
+          pendingRuns.push({
+            airfoil_name: data.name,
+            airfoil_hash: data.airfoilHash,
+            alpha: data.alpha,
+            reynolds: data.reynolds,
+            mach: data.mach,
+            ncrit: data.ncrit,
+            n_panels: data.nPanels,
+            max_iter: data.maxIterations,
+            cl: data.cl,
+            cd: data.cd,
+            cm: data.cm,
+            converged: data.converged,
+            iterations: data.iterations,
+            residual: data.residual,
+            x_tr_upper: data.x_tr_upper,
+            x_tr_lower: data.x_tr_lower,
+            solver_mode: data.solverMode,
+            success: data.success,
+            error: data.error,
+            coordinates_json: serializePoints(data.panels),
+            panels_json: serializePoints(data.panels),
+            flaps_json: data.flaps.length > 0 ? JSON.stringify(data.flaps) : null,
+          });
+        },
+        onProgress: (done, total) => {
+          setSweepProgress({ done, total });
+          jobUpdate(jobId, `${done}/${total} points`, done / total);
+        },
+        onSeriesComplete: flushPending,
+        signal: controller.signal,
+      });
+
+      // Flush any remaining runs (single sweep with no secondary axis)
+      await flushPending();
+
+      if (dbFail > 0) console.warn(`[sweep] DB: ${dbOk} inserted, ${dbFail} failed`);
+      else if (dbOk > 0) console.log(`[sweep] DB: ${dbOk} runs saved`);
+
+      jobComplete(jobId);
+    } catch (e) {
+      if (!controller.signal.aborted) {
+        const msg = e instanceof Error ? e.message : 'Sweep failed';
+        setError(msg);
+        jobComplete(jobId, msg);
+      } else {
+        jobComplete(jobId, 'Cancelled');
+      }
+    } finally {
+      setIsRunning(false);
+      setSweepProgress(null);
+      sweepAbortRef.current = null;
+    }
+  }, [panels, sweepPrimary, sweepSecondary, displayAlpha, reynolds, mach, ncrit,
+      maxIterations, solverMode, geometryDesign.flaps, name, isViscous, upsertPolar, addRun, addRunBatch,
+      jobDispatch, jobComplete, jobUpdate]);
 
   // --------------- derived ---------------
 
@@ -875,41 +1040,60 @@ export function SolvePanel() {
           </div>
         )}
 
-        {/* Polar Sweep */}
+        {/* Parameter Sweep */}
         <div className="form-group" style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }} data-tour="solve-polar">
-          <div className="form-label">Alpha Polar</div>
+          <div className="form-label">Parameter Sweep</div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-            <div>
-              <label style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Start (°)</label>
-              <input type="number" value={alphaStart} onChange={(e) => setAlphaStart(parseFloat(e.target.value))} step={1} />
-            </div>
-            <div>
-              <label style={{ fontSize: '10px', color: 'var(--text-muted)' }}>End (°)</label>
-              <input type="number" value={alphaEnd} onChange={(e) => setAlphaEnd(parseFloat(e.target.value))} step={1} />
-            </div>
-            <div>
-              <label style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Step (°)</label>
+          <SweepAxisRow
+            label="Sweep"
+            axis={sweepPrimary}
+            onUpdate={updateSweepPrimary}
+            flaps={flaps}
+          />
+
+          <div style={{ marginBottom: '6px' }}>
+            <label style={{ fontSize: '10px', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <input
-                type="number"
-                value={alphaStepText}
-                onChange={(e) => setAlphaStepText(e.target.value)}
-                onFocus={() => { alphaStepFocusedRef.current = true; }}
-                onBlur={commitAlphaStep}
-                onKeyDown={(e) => { if (e.key === 'Enter') commitAlphaStep(); }}
-                step={0.5}
-                min={0.01}
+                type="checkbox"
+                checked={sweepSecondary !== null}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSweepSecondary({ param: 'reynolds', start: 1e5, end: 1e7, step: 1e6 });
+                  } else {
+                    setSweepSecondary(null);
+                  }
+                }}
               />
-            </div>
+              Matrix sweep (second parameter)
+            </label>
           </div>
+
+          {sweepSecondary && (
+            <SweepAxisRow
+              label="Matrix"
+              axis={sweepSecondary}
+              onUpdate={updateSweepSecondary}
+              flaps={flaps}
+            />
+          )}
 
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
-              onClick={runPolar}
+              onClick={runMultiSweep}
               disabled={isRunning || !isWasmReady()}
               style={{ flex: 1 }}
             >
-              {isRunning ? 'Running...' : 'Generate Polar'}
+              {isRunning && sweepProgress
+                ? `Sweep ${sweepProgress.done}/${sweepProgress.total}`
+                : isRunning ? 'Running...' : 'Generate Sweep'}
+            </button>
+            <button
+              onClick={runPolar}
+              disabled={isRunning || !isWasmReady()}
+              title="Quick alpha polar (legacy)"
+              style={{ padding: '4px 8px', fontSize: '10px' }}
+            >
+              α Polar
             </button>
             {polarData.length > 0 && (
               <button
@@ -922,6 +1106,11 @@ export function SolvePanel() {
               </button>
             )}
           </div>
+          {sweepProgress && (
+            <div style={{ marginTop: '4px', height: '3px', background: 'var(--bg-tertiary)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${(sweepProgress.done / sweepProgress.total) * 100}%`, background: 'var(--accent-primary)', transition: 'width 0.1s' }} />
+            </div>
+          )}
           {polarData.length > 1 && (
             <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
               {polarData.length} polar series overlaid — see Polar panel
@@ -1043,6 +1232,130 @@ export function SolvePanel() {
           <div>Panels: {panels.length - 1}</div>
           <div>Solver: {isViscous ? 'XFOIL viscous' : 'Inviscid panel method'}</div>
           <div>WASM: {isWasmReady() ? '✓ Ready' : '⏳ Loading...'}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Build sweep parameter options dynamically — one entry per flap per flap-param */
+function buildSweepOptions(flaps: { id: string; name: string }[]): { value: string; param: SweepParam; label: string; flapId?: string }[] {
+  const opts: { value: string; param: SweepParam; label: string; flapId?: string }[] = [
+    { value: 'alpha', param: 'alpha', label: 'Alpha (°)' },
+    { value: 'reynolds', param: 'reynolds', label: 'Reynolds' },
+    { value: 'mach', param: 'mach', label: 'Mach' },
+    { value: 'ncrit', param: 'ncrit', label: 'Ncrit' },
+  ];
+  for (const f of flaps) {
+    opts.push({ value: `flapDeflection:${f.id}`, param: 'flapDeflection', label: `${f.name} δ (°)`, flapId: f.id });
+    opts.push({ value: `flapHingeX:${f.id}`, param: 'flapHingeX', label: `${f.name} x/c`, flapId: f.id });
+  }
+  return opts;
+}
+
+const SWEEP_DEFAULTS: Record<SweepParam, { start: number; end: number; step: number }> = {
+  alpha: { start: -5, end: 15, step: 1 },
+  reynolds: { start: 1e5, end: 1e7, step: 1e6 },
+  mach: { start: 0, end: 0.6, step: 0.1 },
+  ncrit: { start: 4, end: 12, step: 1 },
+  flapDeflection: { start: -10, end: 20, step: 5 },
+  flapHingeX: { start: 0.6, end: 0.9, step: 0.05 },
+};
+
+/** Text input that commits a parsed number on blur/Enter, supporting scientific notation (e.g. 6e6). */
+function NumericTextInput({ value, onCommit, min, placeholder }: {
+  value: number;
+  onCommit: (v: number) => void;
+  min?: number;
+  placeholder?: string;
+}) {
+  const [text, setText] = useState(() => formatNumericDisplay(value));
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusedRef.current) setText(formatNumericDisplay(value));
+  }, [value]);
+
+  const commit = useCallback(() => {
+    focusedRef.current = false;
+    const parsed = Number(text);
+    if (!isNaN(parsed) && isFinite(parsed) && (min == null || parsed >= min)) {
+      onCommit(parsed);
+    } else {
+      setText(formatNumericDisplay(value));
+    }
+  }, [text, value, onCommit, min]);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onFocus={() => { focusedRef.current = true; }}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
+      placeholder={placeholder}
+    />
+  );
+}
+
+function formatNumericDisplay(v: number): string {
+  if (v === 0) return '0';
+  const abs = Math.abs(v);
+  if (abs >= 1e5 || (abs > 0 && abs < 0.01)) return v.toExponential();
+  return String(v);
+}
+
+function SweepAxisRow({ label, axis, onUpdate, flaps }: {
+  label: string;
+  axis: { param: SweepParam; start: number; end: number; step: number; flapId?: string };
+  onUpdate: (partial: Partial<typeof axis>) => void;
+  flaps: { id: string; name: string }[];
+}) {
+  const options = buildSweepOptions(flaps);
+
+  const isFlapParam = axis.param === 'flapDeflection' || axis.param === 'flapHingeX';
+  const selectedValue = isFlapParam && axis.flapId
+    ? `${axis.param}:${axis.flapId}`
+    : axis.param;
+
+  return (
+    <div style={{ marginBottom: '8px' }}>
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '4px', alignItems: 'center' }}>
+        <span style={{ fontSize: '10px', color: 'var(--text-muted)', minWidth: '36px' }}>{label}:</span>
+        <select
+          value={selectedValue}
+          onChange={(e) => {
+            const opt = options.find(o => o.value === e.target.value);
+            if (!opt) return;
+            const defaults = SWEEP_DEFAULTS[opt.param];
+            onUpdate({ param: opt.param, ...defaults, flapId: opt.flapId });
+          }}
+          style={{ flex: 1, fontSize: '11px' }}
+        >
+          {options.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+      {flaps.length === 0 && (
+        <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px', fontStyle: 'italic' }}>
+          Define flaps in Geometry Control to enable flap sweeps
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px' }}>
+        <div>
+          <label style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Start</label>
+          <NumericTextInput value={axis.start} onCommit={(v) => onUpdate({ start: v })} />
+        </div>
+        <div>
+          <label style={{ fontSize: '9px', color: 'var(--text-muted)' }}>End</label>
+          <NumericTextInput value={axis.end} onCommit={(v) => onUpdate({ end: v })} />
+        </div>
+        <div>
+          <label style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Step</label>
+          <NumericTextInput value={axis.step} onCommit={(v) => onUpdate({ step: v })} min={0.001} />
         </div>
       </div>
     </div>

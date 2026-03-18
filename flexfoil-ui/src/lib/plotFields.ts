@@ -22,11 +22,14 @@ export const PLOT_FIELDS: PlotFieldMeta[] = [
   { key: 'cl', label: 'CL', kind: 'numeric' },
   { key: 'cd', label: 'CD', kind: 'numeric' },
   { key: 'cm', label: 'CM', kind: 'numeric' },
+  { key: 'ld', label: 'L/D', kind: 'numeric' },
   { key: 'converged', label: 'Converged', kind: 'boolean' },
   { key: 'iterations', label: 'Iterations', kind: 'numeric' },
   { key: 'residual', label: 'Residual', kind: 'numeric' },
   { key: 'x_tr_upper', label: 'Xtr Upper', kind: 'numeric' },
   { key: 'x_tr_lower', label: 'Xtr Lower', kind: 'numeric' },
+  { key: 'flap_deflection', label: 'Flap δ', kind: 'numeric' },
+  { key: 'flap_hinge_x', label: 'Flap x/c', kind: 'numeric', autoGroupInvariant: true },
   { key: 'solver_mode', label: 'Solver', kind: 'categorical', autoGroupInvariant: true },
   { key: 'created_at', label: 'Created', kind: 'temporal' },
   { key: 'session_id', label: 'Session', kind: 'categorical' },
@@ -36,7 +39,7 @@ export const NUMERIC_PLOT_FIELDS = PLOT_FIELDS.filter(
   (field) => field.kind === 'numeric',
 );
 
-export const DISCRETE_PLOT_FIELDS = PLOT_FIELDS.filter(
+const DISCRETE_PLOT_FIELDS = PLOT_FIELDS.filter(
   (field) => field.kind !== 'numeric',
 );
 
@@ -58,6 +61,6 @@ export function isNumericPlotField(key: keyof RunRow): boolean {
   return getPlotFieldMeta(key)?.kind === 'numeric';
 }
 
-export function isDiscretePlotField(key: keyof RunRow): boolean {
+function isDiscretePlotField(key: keyof RunRow): boolean {
   return !isNumericPlotField(key);
 }

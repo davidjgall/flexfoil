@@ -22,6 +22,10 @@ import type {
   CamberControlPoint,
   ThicknessControlPoint,
   RunRow,
+  InverseDesignState,
+  InverseDesignSurfaceTarget,
+  GeometryDesignState,
+  FlapDefinition,
 } from '../types';
 import {
   generateNaca4 as wasmGenerateNaca4,
@@ -40,6 +44,7 @@ import {
   reconstructWithOriginalCamber,
 } from '../lib/airfoilGeometry';
 import { syncToUrl, loadFromUrl, parseNacaFromName, type UrlState } from '../lib/urlState';
+import { applyFlapsToBase } from '../lib/flapGeometry';
 
 /**
  * State that is tracked for undo/redo.
@@ -104,6 +109,28 @@ const DEFAULT_SPACING_KNOTS: SpacingKnot[] = [
   { S: 0.75, F: 0.4 }, // Sparse between LE and TE
   { S: 1, F: 1.5 },    // Dense at TE
 ];
+
+const DEFAULT_INVERSE_DESIGN: InverseDesignState = {
+  active: false,
+  targetKind: 'cp',
+  upperTarget: null,
+  lowerTarget: null,
+  achievedUpper: null,
+  achievedLower: null,
+  solving: false,
+  maxIterations: 6,
+  damping: 0.6,
+  resultCoords: null,
+  converged: null,
+  history: [],
+};
+
+const DEFAULT_GEOMETRY_DESIGN: GeometryDesignState = {
+  flaps: [],
+  teGap: 0,
+  teGapBlend: 0.8,
+  leRadiusFactor: 1.0,
+};
 
 interface AirfoilStore extends AirfoilState {
   // Actions
@@ -179,12 +206,45 @@ interface AirfoilStore extends AirfoilState {
   clearAllPolars: () => void;
   restoreRunSnapshot: (run: RunRow) => void;
   
+  // Inverse design (QDES) actions
+  setInverseDesignTargetKind: (kind: 'cp' | 'velocity') => void;
+  setInverseDesignTarget: (surface: 'upper' | 'lower', target: InverseDesignSurfaceTarget | null) => void;
+  setInverseDesignSolving: (solving: boolean) => void;
+  setInverseDesignResult: (result: {
+    resultCoords: { x: number; y: number }[] | null;
+    converged: boolean | null;
+    achievedUpper: InverseDesignSurfaceTarget | null;
+    achievedLower: InverseDesignSurfaceTarget | null;
+    history: InverseDesignState['history'];
+  }) => void;
+  clearInverseDesign: () => void;
+  setInverseDesignMaxIterations: (n: number) => void;
+  setInverseDesignDamping: (d: number) => void;
+  applyInverseDesignResult: () => void;
+  
+  // Geometry design (GDES) actions
+  setGeometryDesign: (updates: Partial<GeometryDesignState>) => void;
+  addFlap: () => void;
+  updateFlap: (id: string, updates: Partial<Omit<FlapDefinition, 'id'>>) => void;
+  removeFlap: (id: string) => void;
+  
   // Reset
   reset: () => void;
   
   // Initialize default airfoil (call after WASM ready)
   initializeDefaultAirfoil: () => void;
   hydrateRouteState: (state: Partial<AirfoilState>) => void;
+}
+
+/**
+ * Polar keys the user explicitly removed while a sweep was running.
+ * Prevents `upsertPolar` from re-inserting a series the user deleted.
+ * Cleared at the start of each new sweep via `clearPolarSuppression()`.
+ */
+const _suppressedPolarKeys = new Set<string>();
+
+export function clearPolarSuppression(): void {
+  _suppressedPolarKeys.clear();
 }
 
 /**
@@ -240,6 +300,11 @@ export const useAirfoilStore = create<AirfoilStore>()(
       thicknessScale: 1.0,
       camberScale: 1.0,
       baseCoordinates: DEFAULT_NACA0012,
+
+      // Inverse design state
+      inverseDesign: { ...DEFAULT_INVERSE_DESIGN },
+      // Geometry design state
+      geometryDesign: { ...DEFAULT_GEOMETRY_DESIGN },
 
       // Actions
       setCoordinates: (coords) => set({ coordinates: coords }),
@@ -825,6 +890,7 @@ export const useAirfoilStore = create<AirfoilStore>()(
       
       // Polar data actions (multi-series)
       upsertPolar: (series) => set((state) => {
+        if (_suppressedPolarKeys.has(series.key)) return state;
         const idx = state.polarData.findIndex(s => s.key === series.key);
         if (idx >= 0) {
           const updated = [...state.polarData];
@@ -833,10 +899,14 @@ export const useAirfoilStore = create<AirfoilStore>()(
         }
         return { polarData: [...state.polarData, series] };
       }),
-      removePolar: (key) => set((state) => ({
-        polarData: state.polarData.filter(s => s.key !== key),
-      })),
-      clearAllPolars: () => set({ polarData: [] }),
+      removePolar: (key) => set((state) => {
+        _suppressedPolarKeys.add(key);
+        return { polarData: state.polarData.filter(s => s.key !== key) };
+      }),
+      clearAllPolars: () => set((state) => {
+        for (const s of state.polarData) _suppressedPolarKeys.add(s.key);
+        return { polarData: [] };
+      }),
       restoreRunSnapshot: (run) => set((state) => {
         if (!run.geometry_snapshot) return state;
         return {
@@ -861,6 +931,110 @@ export const useAirfoilStore = create<AirfoilStore>()(
         };
       }),
 
+      // Inverse design (QDES) actions
+      setInverseDesignTargetKind: (kind) => set((state) => ({
+        inverseDesign: { ...state.inverseDesign, targetKind: kind },
+      })),
+      
+      setInverseDesignTarget: (surface, target) => set((state) => ({
+        inverseDesign: {
+          ...state.inverseDesign,
+          ...(surface === 'upper' ? { upperTarget: target } : { lowerTarget: target }),
+        },
+      })),
+      
+      setInverseDesignSolving: (solving) => set((state) => ({
+        inverseDesign: { ...state.inverseDesign, solving },
+      })),
+      
+      setInverseDesignResult: (result) => set((state) => ({
+        inverseDesign: {
+          ...state.inverseDesign,
+          resultCoords: result.resultCoords,
+          converged: result.converged,
+          achievedUpper: result.achievedUpper,
+          achievedLower: result.achievedLower,
+          history: result.history,
+          solving: false,
+        },
+      })),
+      
+      clearInverseDesign: () => set({
+        inverseDesign: { ...DEFAULT_INVERSE_DESIGN },
+      }),
+      
+      setInverseDesignMaxIterations: (n) => set((state) => ({
+        inverseDesign: { ...state.inverseDesign, maxIterations: Math.max(1, Math.min(20, n)) },
+      })),
+      
+      setInverseDesignDamping: (d) => set((state) => ({
+        inverseDesign: { ...state.inverseDesign, damping: Math.max(0.1, Math.min(1.0, d)) },
+      })),
+      
+      applyInverseDesignResult: () => set((state) => {
+        const result = state.inverseDesign.resultCoords;
+        if (!result || result.length === 0) return state;
+        
+        const newCoords: AirfoilPoint[] = result.map(p => ({ x: p.x, y: p.y }));
+        let panels = newCoords;
+        if (isWasmReady()) {
+          try {
+            const repaneled = repanelXfoil(newCoords, state.nPanels);
+            if (repaneled.length > 0) {
+              panels = repaneled.map(pt => ({ x: pt.x, y: pt.y }));
+            }
+          } catch { /* keep raw coords */ }
+        }
+        
+        return {
+          coordinates: newCoords,
+          panels,
+          baseCoordinates: newCoords,
+          thicknessScale: 1.0,
+          camberScale: 1.0,
+          camberControlPoints: [],
+          thicknessControlPoints: [],
+          inverseDesign: { ...DEFAULT_INVERSE_DESIGN },
+        };
+      }),
+      
+      // Geometry design (GDES) actions
+      setGeometryDesign: (updates) => set((state) => ({
+        geometryDesign: { ...state.geometryDesign, ...updates },
+      })),
+      addFlap: () => set((state) => {
+        const n = state.geometryDesign.flaps.length + 1;
+        return {
+          geometryDesign: {
+            ...state.geometryDesign,
+            flaps: [
+              ...state.geometryDesign.flaps,
+              {
+                id: `flap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+                name: n === 1 ? 'Flap' : `Flap ${n}`,
+                hingeX: 0.75,
+                hingeYFrac: 0.5,
+                deflection: 0,
+              },
+            ],
+          },
+        };
+      }),
+      updateFlap: (id, updates) => set((state) => ({
+        geometryDesign: {
+          ...state.geometryDesign,
+          flaps: state.geometryDesign.flaps.map((f) =>
+            f.id === id ? { ...f, ...updates } : f
+          ),
+        },
+      })),
+      removeFlap: (id) => set((state) => ({
+        geometryDesign: {
+          ...state.geometryDesign,
+          flaps: state.geometryDesign.flaps.filter((f) => f.id !== id),
+        },
+      })),
+      
       reset: () => set({
         name: 'NACA 0012',
         coordinates: DEFAULT_NACA0012,
@@ -870,7 +1044,7 @@ export const useAirfoilStore = create<AirfoilStore>()(
         bsplineControlPoints: [],
         bsplineDegree: 3,
         spacingKnots: DEFAULT_SPACING_KNOTS,
-        nPanels: 160,  // XFOIL's default NPAN
+        nPanels: 160,
         curvatureWeight: 0,
         displayAlpha: 0,
         mach: 0,
@@ -885,6 +1059,8 @@ export const useAirfoilStore = create<AirfoilStore>()(
         thicknessScale: 1.0,
         camberScale: 1.0,
         baseCoordinates: DEFAULT_NACA0012,
+        inverseDesign: { ...DEFAULT_INVERSE_DESIGN },
+        geometryDesign: { ...DEFAULT_GEOMETRY_DESIGN },
       }),
       
       initializeDefaultAirfoil: () => {
@@ -1002,7 +1178,7 @@ export function redo(): void {
 /**
  * Clear all history (past and future states).
  */
-export function clearHistory(): void {
+function clearHistory(): void {
   useAirfoilStore.temporal.getState().clear();
 }
 
@@ -1021,13 +1197,16 @@ export function getUrlState(): UrlState {
     spacing: state.spacingKnots,
     mode: state.controlMode,
     alpha: state.displayAlpha,
+    flaps: state.geometryDesign.flaps.length > 0
+      ? state.geometryDesign.flaps
+      : undefined,
   };
 }
 
 /**
  * Hydrate store from URL state
  */
-export function hydrateFromUrl(): boolean {
+function hydrateFromUrl(): boolean {
   const urlState = loadFromUrl();
   if (!urlState) return false;
   
@@ -1060,6 +1239,21 @@ export function hydrateFromUrl(): boolean {
   if (urlState.mode) {
     store.setControlMode(urlState.mode);
   }
+
+  // Restore flap definitions and apply geometry
+  if (urlState.flaps && urlState.flaps.length > 0) {
+    store.setGeometryDesign({ flaps: urlState.flaps });
+    // Defer geometry application until WASM is ready and base geometry exists
+    setTimeout(() => {
+      if (!isWasmReady()) return;
+      const { baseCoordinates, nPanels } = useAirfoilStore.getState();
+      if (baseCoordinates.length < 4) return;
+      const result = applyFlapsToBase(baseCoordinates, urlState.flaps!, nPanels);
+      if (result) {
+        useAirfoilStore.setState({ coordinates: result.coordinates, panels: result.panels });
+      }
+    }, 200);
+  }
   
   return true;
 }
@@ -1083,7 +1277,7 @@ export function syncStoreToUrl(): void {
 /**
  * Subscribe to store changes and sync to URL
  */
-export function subscribeToUrlSync(): () => void {
+function subscribeToUrlSync(): () => void {
   return useAirfoilStore.subscribe((state, prevState) => {
     // Only sync on meaningful changes
     if (

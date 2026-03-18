@@ -770,6 +770,18 @@ button.primary:hover {
   margin-bottom: 4px;
 }
 
+/* ── Command Palette ───────────────────────────────── */
+
+@keyframes cmd-palette-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes cmd-palette-slide {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 /* ── Mobile Layout ─────────────────────────────────── */
 
 .mobile-layout {

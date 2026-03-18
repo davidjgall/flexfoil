@@ -11,13 +11,14 @@ members = [
     "crates/rustfoil-wasm",
     "crates/rustfoil-cli",
     "crates/rustfoil-inviscid", "crates/rustfoil-xfoil",
+    "crates/rustfoil-python",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-authors = ["Harry"]
+authors = ["Flexcompute, Inc.", "Harry Smith"]
 
 [workspace.dependencies]
 nalgebra = "0.33"

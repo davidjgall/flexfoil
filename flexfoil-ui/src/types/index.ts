@@ -17,10 +17,30 @@ export interface AirfoilPoint extends Point {
 }
 
 /** Control modes for airfoil manipulation */
-export type ControlMode = 'parameters' | 'camber-spline' | 'thickness-spline';
+export type ControlMode = 'parameters' | 'camber-spline' | 'thickness-spline' | 'inverse-design' | 'geometry-design';
 export type SolverMode = 'viscous' | 'inviscid';
 export type RunMode = 'alpha' | 'cl';
-export type AxisVariable = 'alpha' | 'cl' | 'cd' | 'cm';
+export type AxisVariable = 'alpha' | 'cl' | 'cd' | 'cm' | 'ld'
+  | 'reynolds' | 'mach' | 'ncrit' | 'flapDeflection' | 'flapHingeX';
+
+/** Parameters that can be swept in a polar-style study */
+export type SweepParam =
+  | 'alpha'
+  | 'reynolds'
+  | 'mach'
+  | 'ncrit'
+  | 'flapDeflection'
+  | 'flapHingeX';
+
+/** Configuration for one sweep axis (primary or secondary) */
+export interface SweepAxis {
+  param: SweepParam;
+  start: number;
+  end: number;
+  step: number;
+  /** Which flap to vary — only used for flapDeflection / flapHingeX */
+  flapId?: string;
+}
 export type ChartType = 'scatter' | 'line' | 'bar' | 'histogram';
 export type DataSource = 'full' | 'filtered';
 export type AxisScale = 'linear' | 'log';
@@ -147,14 +167,23 @@ export interface AirfoilState {
   camberScale: number;
   /** Original airfoil for scaling reference */
   baseCoordinates: AirfoilPoint[];
+  /** Inverse design (QDES) state */
+  inverseDesign: InverseDesignState;
+  /** Geometry design (GDES) state */
+  geometryDesign: GeometryDesignState;
 }
 
-/** A polar data point */
+/** A polar data point with optional swept-parameter values */
 export interface PolarPoint {
   alpha: number;
   cl: number;
   cd?: number;
   cm: number;
+  reynolds?: number;
+  mach?: number;
+  ncrit?: number;
+  flapDeflection?: number;
+  flapHingeX?: number;
 }
 
 /** A named polar series keyed by solver config (airfoil + Re + Mach + Ncrit + …) */
@@ -195,6 +224,10 @@ export interface RunRow {
   created_at: string;
   session_id: string | null;
   geometry_snapshot: RunGeometrySnapshot | null;
+  flaps: FlapDefinition[] | null;
+  ld: number | null;
+  flap_deflection: number | null;
+  flap_hinge_x: number | null;
 }
 
 /** Panel configuration for FlexLayout */
@@ -214,6 +247,67 @@ export interface ViewportState {
   width: number;
   /** Canvas height in pixels */
   height: number;
+}
+
+/** Target distribution for one surface in inverse design */
+export interface InverseDesignSurfaceTarget {
+  /** x-locations along the surface */
+  x: number[];
+  /** Target values (Cp or edge velocity) at each x-location */
+  values: number[];
+}
+
+/** Inverse design (QDES) state */
+export interface InverseDesignState {
+  /** Whether inverse design mode is active */
+  active: boolean;
+  /** Target kind: pressure coefficient or edge velocity */
+  targetKind: 'cp' | 'velocity';
+  /** Upper surface target (null if not targeting upper) */
+  upperTarget: InverseDesignSurfaceTarget | null;
+  /** Lower surface target (null if not targeting lower) */
+  lowerTarget: InverseDesignSurfaceTarget | null;
+  /** Achieved upper surface distribution (from last solve) */
+  achievedUpper: InverseDesignSurfaceTarget | null;
+  /** Achieved lower surface distribution (from last solve) */
+  achievedLower: InverseDesignSurfaceTarget | null;
+  /** Whether the solver is currently running */
+  solving: boolean;
+  /** Max design iterations */
+  maxIterations: number;
+  /** Damping factor (0-1) */
+  damping: number;
+  /** Result coordinates from last solve (flat array) */
+  resultCoords: { x: number; y: number }[] | null;
+  /** Convergence flag from last solve */
+  converged: boolean | null;
+  /** Iteration history */
+  history: { iteration: number; rms_error: number; max_error: number; cl: number; cd: number }[];
+}
+
+/** A single flap definition with hinge location and deflection */
+export interface FlapDefinition {
+  id: string;
+  /** User-assigned name (e.g. "Main flap", "Tab") */
+  name: string;
+  /** Hinge x-position as fraction of chord (0.5 – 0.95) */
+  hingeX: number;
+  /** Hinge y-position as fraction of local thickness (0 = lower, 0.5 = mid, 1 = upper) */
+  hingeYFrac: number;
+  /** Deflection in degrees (positive = down) */
+  deflection: number;
+}
+
+/** Geometry design (GDES) state for flaps, TE gap, LE radius, transforms */
+export interface GeometryDesignState {
+  /** Ordered list of flap definitions (applied sequentially) */
+  flaps: FlapDefinition[];
+  /** Trailing-edge gap as fraction of chord */
+  teGap: number;
+  /** TE gap blend fraction */
+  teGapBlend: number;
+  /** Leading-edge radius scale factor */
+  leRadiusFactor: number;
 }
 
 /** Performance metrics for visualization */

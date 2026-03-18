@@ -3,7 +3,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Layout, Model, Actions, DockLocation } from 'flexlayout-react';
+import { Layout, Model, Actions, DockLocation, type IJsonModel } from 'flexlayout-react';
 
 // Panel components
 import { AirfoilCanvas } from './AirfoilCanvas';
@@ -18,7 +18,9 @@ import { DataExplorerPanel } from './panels/DataExplorerPanel';
 import { PlotBuilderPanel } from './panels/PlotBuilderPanel';
 import { CaseLogsPanel } from './panels/CaseLogsPanel';
 import { MenuBar } from './MenuBar';
+import { CommandPalette } from './CommandPalette';
 import { FeedbackWidget } from './FeedbackWidget';
+import { SolverStatusIndicator } from './SolverStatusBar';
 import { MobileLayout } from './MobileLayout';
 import { LayoutProvider } from '../contexts/LayoutContext';
 import { defaultLayoutJson, PANELS } from '../layoutConfig';
@@ -27,6 +29,20 @@ import { useIsMobile } from '../hooks/useIsMobile';
 
 // Storage keys
 const LAYOUT_STORAGE_KEY = 'flexfoil-layout-v4';
+
+/** Patch tab names in a persisted layout to match current PANELS config. */
+function migrateTabNames(json: IJsonModel): IJsonModel {
+  const nameMap = new Map(PANELS.map(p => [p.component, p.name]));
+  const walk = (node: any) => {
+    if (node.component && nameMap.has(node.component)) {
+      node.name = nameMap.get(node.component);
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  const patched = JSON.parse(JSON.stringify(json));
+  walk(patched.layout ?? patched);
+  return patched;
+}
 
 interface DockingLayoutProps {
   wasmStatus: 'loading' | 'ready' | 'error';
@@ -46,6 +62,7 @@ function BrandFooter() {
         >
           Flexcompute.com
         </a>
+        <SolverStatusIndicator />
       </div>
     </footer>
   );
@@ -82,6 +99,7 @@ export function DockingLayout({ wasmStatus }: DockingLayoutProps) {
 }
 
 function DesktopLayout({ wasmStatus }: DockingLayoutProps) {
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const layoutJson = useRouteUiStore((state) => state.layoutJson);
   const layoutRevision = useRouteUiStore((state) => state.layoutRevision);
   const activePanel = useRouteUiStore((state) => state.activePanel);
@@ -89,15 +107,27 @@ function DesktopLayout({ wasmStatus }: DockingLayoutProps) {
   const setLayoutJson = useRouteUiStore((state) => state.setLayoutJson);
   const setActivePanel = useRouteUiStore((state) => state.setActivePanel);
 
+  // Cmd+K / Ctrl+K to open command palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   // Initialize model from localStorage or default
   const [model, setModel] = useState(() => {
     if (layoutJson) {
-      return Model.fromJson(layoutJson);
+      return Model.fromJson(migrateTabNames(layoutJson));
     }
     try {
       const savedLayout = localStorage.getItem(LAYOUT_STORAGE_KEY);
       if (savedLayout) {
-        return Model.fromJson(JSON.parse(savedLayout));
+        return Model.fromJson(migrateTabNames(JSON.parse(savedLayout)));
       }
     } catch (error) {
       console.warn('Failed to load saved layout, using default:', error);
@@ -254,7 +284,7 @@ function DesktopLayout({ wasmStatus }: DockingLayoutProps) {
 
     if (layoutJson) {
       try {
-        const nextModel = Model.fromJson(layoutJson);
+        const nextModel = Model.fromJson(migrateTabNames(layoutJson));
         setModel(nextModel);
         applyClosedPanelsFromModel(nextModel);
       } catch (error) {
@@ -397,6 +427,7 @@ function DesktopLayout({ wasmStatus }: DockingLayoutProps) {
           onRestorePanel={handleRestorePanel}
           onOpenPanel={handleOpenPanel}
           onResetLayout={handleResetLayout}
+          onOpenPalette={() => setPaletteOpen(true)}
           wasmStatus={wasmStatus}
         />
 
@@ -412,6 +443,11 @@ function DesktopLayout({ wasmStatus }: DockingLayoutProps) {
         </div>
         <BrandFooter />
       </div>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onResetLayout={handleResetLayout}
+      />
     </LayoutProvider>
   );
 }

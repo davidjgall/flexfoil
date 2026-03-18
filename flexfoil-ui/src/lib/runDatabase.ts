@@ -6,7 +6,7 @@
 
 import initSqlJs, { type Database } from 'sql.js';
 import { openDB, type IDBPDatabase } from 'idb';
-import type { AirfoilPoint, RunGeometrySnapshot, RunRow, SolverMode } from '../types';
+import type { AirfoilPoint, FlapDefinition, RunGeometrySnapshot, RunRow, SolverMode } from '../types';
 import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 
 const DB_NAME = 'flexfoil-runs';
@@ -81,6 +81,7 @@ const REQUIRED_COLUMNS: Array<{ name: string; definition: string }> = [
   { name: 'solver_mode', definition: "TEXT NOT NULL DEFAULT 'viscous'" },
   { name: 'coordinates_json', definition: 'TEXT' },
   { name: 'panels_json', definition: 'TEXT' },
+  { name: 'flaps_json', definition: 'TEXT' },
 ];
 
 function ensureSchemaColumns(): void {
@@ -153,6 +154,33 @@ export interface RunInsert {
   solver_mode: SolverMode;
   coordinates_json: string | null;
   panels_json: string | null;
+  flaps_json: string | null;
+}
+
+export async function insertRunBatch(runs: RunInsert[]): Promise<number> {
+  if (runs.length === 0) return 0;
+  const d = getDb();
+  const sid = getSessionId();
+  const stmt = d.prepare(
+    `INSERT OR IGNORE INTO runs
+       (airfoil_name, airfoil_hash, alpha, reynolds, mach, ncrit, n_panels, max_iter,
+        cl, cd, cm, converged, iterations, residual, x_tr_upper, x_tr_lower,
+       solver_mode, success, error, coordinates_json, panels_json, flaps_json, session_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  for (const run of runs) {
+    stmt.run([
+      run.airfoil_name, run.airfoil_hash, run.alpha, run.reynolds,
+      run.mach, run.ncrit, run.n_panels, run.max_iter,
+      run.cl, run.cd, run.cm, run.converged ? 1 : 0,
+      run.iterations, run.residual, run.x_tr_upper, run.x_tr_lower,
+      run.solver_mode, run.success ? 1 : 0, run.error,
+      run.coordinates_json, run.panels_json, run.flaps_json, sid,
+    ]);
+  }
+  stmt.free();
+  await persistToIdb();
+  return runs.length;
 }
 
 export async function insertRun(run: RunInsert): Promise<number> {
@@ -161,8 +189,8 @@ export async function insertRun(run: RunInsert): Promise<number> {
     `INSERT OR IGNORE INTO runs
        (airfoil_name, airfoil_hash, alpha, reynolds, mach, ncrit, n_panels, max_iter,
         cl, cd, cm, converged, iterations, residual, x_tr_upper, x_tr_lower,
-       solver_mode, success, error, coordinates_json, panels_json, session_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       solver_mode, success, error, coordinates_json, panels_json, flaps_json, session_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       run.airfoil_name,
       run.airfoil_hash,
@@ -185,6 +213,7 @@ export async function insertRun(run: RunInsert): Promise<number> {
       run.error,
       run.coordinates_json,
       run.panels_json,
+      run.flaps_json,
       getSessionId(),
     ]
   );
@@ -301,6 +330,32 @@ function parseGeometrySnapshot(
   return { coordinates, panels };
 }
 
+function parseFlapsJson(json: unknown): FlapDefinition[] | null {
+  if (typeof json !== 'string' || json.trim() === '') return null;
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return null;
+    return parsed
+      .filter(
+        (f): f is Record<string, unknown> =>
+          typeof f === 'object' && f !== null &&
+          typeof f.id === 'string' &&
+          typeof f.hingeX === 'number' &&
+          typeof f.hingeYFrac === 'number' &&
+          typeof f.deflection === 'number',
+      )
+      .map((f, i) => ({
+        id: f.id as string,
+        name: typeof f.name === 'string' ? f.name : `Flap ${i + 1}`,
+        hingeX: f.hingeX as number,
+        hingeYFrac: f.hingeYFrac as number,
+        deflection: f.deflection as number,
+      }));
+  } catch {
+    return null;
+  }
+}
+
 function rowToRunRow(columns: string[], values: (string | number | null | Uint8Array)[]): RunRow {
   const obj: Record<string, unknown> = {};
   columns.forEach((col, i) => {
@@ -330,5 +385,17 @@ function rowToRunRow(columns: string[], values: (string | number | null | Uint8A
     created_at: obj.created_at as string,
     session_id: obj.session_id as string | null,
     geometry_snapshot: parseGeometrySnapshot(obj.coordinates_json, obj.panels_json),
+    flaps: parseFlapsJson(obj.flaps_json),
+    ld: (obj.cl != null && obj.cd != null && Math.abs(obj.cd as number) > 1e-10)
+      ? (obj.cl as number) / (obj.cd as number)
+      : null,
+    flap_deflection: (() => {
+      const flaps = parseFlapsJson(obj.flaps_json);
+      return flaps && flaps.length > 0 ? flaps[0].deflection : null;
+    })(),
+    flap_hinge_x: (() => {
+      const flaps = parseFlapsJson(obj.flaps_json);
+      return flaps && flaps.length > 0 ? flaps[0].hingeX : null;
+    })(),
   };
 }
