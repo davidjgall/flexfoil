@@ -50,12 +50,23 @@ function FlapRow({ flap, index, onChange, onRemove }: {
 }) {
   return (
     <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 3, padding: '6px', marginBottom: '6px', background: 'var(--bg-subtle, transparent)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-        <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>Flap {index + 1}</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', gap: '4px' }}>
+        <input
+          type="text"
+          value={flap.name}
+          onChange={e => onChange(flap.id, { name: e.target.value })}
+          style={{
+            flex: 1, fontSize: '10px', fontWeight: 600, padding: '1px 3px',
+            background: 'transparent', border: '1px solid transparent',
+            borderRadius: 2, color: 'var(--text-secondary)',
+          }}
+          onFocus={e => { e.target.style.borderColor = 'var(--border-color)'; e.target.style.background = 'var(--bg-input, #1a1a2e)'; }}
+          onBlur={e => { e.target.style.borderColor = 'transparent'; e.target.style.background = 'transparent'; }}
+        />
         <button
           className="btn btn-xs"
           onClick={() => onRemove(flap.id)}
-          style={{ color: 'var(--text-error, #e55)', padding: '0 4px', lineHeight: '1.2' }}
+          style={{ color: 'var(--text-error, #e55)', padding: '0 4px', lineHeight: '1.2', flexShrink: 0 }}
         >&times;</button>
       </div>
       <div style={sliderRow}>

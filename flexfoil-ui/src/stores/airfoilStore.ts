@@ -985,20 +985,24 @@ export const useAirfoilStore = create<AirfoilStore>()(
       setGeometryDesign: (updates) => set((state) => ({
         geometryDesign: { ...state.geometryDesign, ...updates },
       })),
-      addFlap: () => set((state) => ({
-        geometryDesign: {
-          ...state.geometryDesign,
-          flaps: [
-            ...state.geometryDesign.flaps,
-            {
-              id: `flap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-              hingeX: 0.75,
-              hingeYFrac: 0.5,
-              deflection: 0,
-            },
-          ],
-        },
-      })),
+      addFlap: () => set((state) => {
+        const n = state.geometryDesign.flaps.length + 1;
+        return {
+          geometryDesign: {
+            ...state.geometryDesign,
+            flaps: [
+              ...state.geometryDesign.flaps,
+              {
+                id: `flap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+                name: n === 1 ? 'Flap' : `Flap ${n}`,
+                hingeX: 0.75,
+                hingeYFrac: 0.5,
+                deflection: 0,
+              },
+            ],
+          },
+        };
+      }),
       updateFlap: (id, updates) => set((state) => ({
         geometryDesign: {
           ...state.geometryDesign,

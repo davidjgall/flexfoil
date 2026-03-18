@@ -309,14 +309,22 @@ function parseFlapsJson(json: unknown): FlapDefinition[] | null {
   try {
     const parsed = JSON.parse(json);
     if (!Array.isArray(parsed)) return null;
-    return parsed.filter(
-      (f): f is FlapDefinition =>
-        typeof f === 'object' && f !== null &&
-        typeof f.id === 'string' &&
-        typeof f.hingeX === 'number' &&
-        typeof f.hingeYFrac === 'number' &&
-        typeof f.deflection === 'number',
-    );
+    return parsed
+      .filter(
+        (f): f is Record<string, unknown> =>
+          typeof f === 'object' && f !== null &&
+          typeof f.id === 'string' &&
+          typeof f.hingeX === 'number' &&
+          typeof f.hingeYFrac === 'number' &&
+          typeof f.deflection === 'number',
+      )
+      .map((f, i) => ({
+        id: f.id as string,
+        name: typeof f.name === 'string' ? f.name : `Flap ${i + 1}`,
+        hingeX: f.hingeX as number,
+        hingeYFrac: f.hingeYFrac as number,
+        deflection: f.deflection as number,
+      }));
   } catch {
     return null;
   }

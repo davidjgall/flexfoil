@@ -261,6 +261,8 @@ export interface InverseDesignState {
 /** A single flap definition with hinge location and deflection */
 export interface FlapDefinition {
   id: string;
+  /** User-assigned name (e.g. "Main flap", "Tab") */
+  name: string;
   /** Hinge x-position as fraction of chord (0.5 – 0.95) */
   hingeX: number;
   /** Hinge y-position as fraction of local thickness (0 = lower, 0.5 = mid, 1 = upper) */
