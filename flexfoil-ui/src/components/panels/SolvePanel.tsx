@@ -806,7 +806,7 @@ export function SolvePanel() {
             solver_mode: data.solverMode,
             success: data.success,
             error: data.error,
-            coordinates_json: null,
+            coordinates_json: serializePoints(data.panels),
             panels_json: serializePoints(data.panels),
             flaps_json: data.flaps.length > 0 ? JSON.stringify(data.flaps) : null,
           });
