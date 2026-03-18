@@ -85,8 +85,8 @@ export function CommandPalette({ open, onClose, onResetLayout }: CommandPaletteP
 
   const executeItem = useCallback(
     (item: SearchItem) => {
-      onClose();
       if (item.href) {
+        onClose();
         window.open(item.href, '_blank', 'noopener,noreferrer');
         return;
       }
@@ -94,9 +94,9 @@ export function CommandPalette({ open, onClose, onResetLayout }: CommandPaletteP
         openPanel(item.panelId);
       }
       if (item.postAction) {
-        // Small delay so panel opens before mode switch
         requestAnimationFrame(() => item.postAction!());
       }
+      requestAnimationFrame(() => onClose());
     },
     [onClose, openPanel],
   );
@@ -245,6 +245,7 @@ export function CommandPalette({ open, onClose, onResetLayout }: CommandPaletteP
                 cursor: 'pointer',
                 textAlign: 'left',
                 transition: 'background 0.08s ease',
+                position: 'relative',
               }}
             >
               {/* Category badge */}
@@ -261,13 +262,14 @@ export function CommandPalette({ open, onClose, onResetLayout }: CommandPaletteP
                   background: `color-mix(in srgb, ${CATEGORY_COLORS[item.category]} 15%, transparent)`,
                   color: CATEGORY_COLORS[item.category],
                   border: `1px solid color-mix(in srgb, ${CATEGORY_COLORS[item.category]} 25%, transparent)`,
+                  pointerEvents: 'none' as const,
                 }}
               >
                 {CATEGORY_LABELS[item.category]}
               </span>
 
               {/* Label + description */}
-              <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ flex: 1, minWidth: 0, pointerEvents: 'none' as const }}>
                 <div style={{ fontSize: 13, fontWeight: 500 }}>{item.label}</div>
                 <div
                   style={{
@@ -294,6 +296,7 @@ export function CommandPalette({ open, onClose, onResetLayout }: CommandPaletteP
                     border: '1px solid var(--border-color)',
                     borderRadius: 3,
                     color: 'var(--text-muted)',
+                    pointerEvents: 'none' as const,
                   }}
                 >
                   {item.shortcut}

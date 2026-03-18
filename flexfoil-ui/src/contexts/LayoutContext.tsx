@@ -46,7 +46,6 @@ export function LayoutProvider({ children, model, panels }: LayoutProviderProps)
     findTab(root);
 
     if (existingTabId) {
-      // Select the existing tab
       try {
         model.doAction(Actions.selectTab(existingTabId));
         setActivePanel(panelId as any);
@@ -54,7 +53,6 @@ export function LayoutProvider({ children, model, panels }: LayoutProviderProps)
         console.warn('Failed to select tab:', e);
       }
     } else {
-      // Add a new tab
       const tabsets: any[] = [];
       const findTabsets = (node: any) => {
         if (node.getType?.() === 'tabset') {
