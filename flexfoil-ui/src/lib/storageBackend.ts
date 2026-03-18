@@ -32,6 +32,7 @@ export interface RunInsert {
   solver_mode: SolverMode;
   coordinates_json: string | null;
   panels_json: string | null;
+  flaps_json: string | null;
 }
 
 export interface StorageBackend {

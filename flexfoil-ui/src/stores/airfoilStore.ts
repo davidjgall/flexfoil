@@ -25,6 +25,7 @@ import type {
   InverseDesignState,
   InverseDesignSurfaceTarget,
   GeometryDesignState,
+  FlapDefinition,
 } from '../types';
 import {
   generateNaca4 as wasmGenerateNaca4,
@@ -124,8 +125,7 @@ const DEFAULT_INVERSE_DESIGN: InverseDesignState = {
 };
 
 const DEFAULT_GEOMETRY_DESIGN: GeometryDesignState = {
-  flapHingeX: 0.75,
-  flapDeflection: 0,
+  flaps: [],
   teGap: 0,
   teGapBlend: 0.8,
   leRadiusFactor: 1.0,
@@ -223,6 +223,9 @@ interface AirfoilStore extends AirfoilState {
   
   // Geometry design (GDES) actions
   setGeometryDesign: (updates: Partial<GeometryDesignState>) => void;
+  addFlap: () => void;
+  updateFlap: (id: string, updates: Partial<Omit<FlapDefinition, 'id'>>) => void;
+  removeFlap: (id: string) => void;
   
   // Reset
   reset: () => void;
@@ -981,6 +984,34 @@ export const useAirfoilStore = create<AirfoilStore>()(
       // Geometry design (GDES) actions
       setGeometryDesign: (updates) => set((state) => ({
         geometryDesign: { ...state.geometryDesign, ...updates },
+      })),
+      addFlap: () => set((state) => ({
+        geometryDesign: {
+          ...state.geometryDesign,
+          flaps: [
+            ...state.geometryDesign.flaps,
+            {
+              id: `flap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+              hingeX: 0.75,
+              hingeYFrac: 0.5,
+              deflection: 0,
+            },
+          ],
+        },
+      })),
+      updateFlap: (id, updates) => set((state) => ({
+        geometryDesign: {
+          ...state.geometryDesign,
+          flaps: state.geometryDesign.flaps.map((f) =>
+            f.id === id ? { ...f, ...updates } : f
+          ),
+        },
+      })),
+      removeFlap: (id) => set((state) => ({
+        geometryDesign: {
+          ...state.geometryDesign,
+          flaps: state.geometryDesign.flaps.filter((f) => f.id !== id),
+        },
       })),
       
       reset: () => set({

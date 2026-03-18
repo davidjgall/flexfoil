@@ -2715,16 +2715,18 @@ fn set_te_gap_impl(pts: &[Point], target_gap: f64, blend_fraction: f64) -> Vec<P
 
 /// Apply a trailing-edge flap deflection.
 ///
-/// * `hinge_x` - Hinge x-position as fraction of chord (e.g. 0.75)
+/// * `hinge_x_frac` - Hinge x-position as fraction of chord (e.g. 0.75)
+/// * `hinge_y_frac` - Hinge y-position as fraction of local thickness
+///   (0.0 = lower surface, 0.5 = mid-thickness, 1.0 = upper surface)
 /// * `deflection_deg` - Flap deflection angle in degrees (positive = down)
 #[wasm_bindgen]
-pub fn gdes_flap(coords: &[f64], hinge_x_frac: f64, deflection_deg: f64) -> JsValue {
+pub fn gdes_flap(coords: &[f64], hinge_x_frac: f64, hinge_y_frac: f64, deflection_deg: f64) -> JsValue {
     let result = match parse_coords(coords) {
         Some(pts) => {
             if pts.len() < 4 {
                 geometry_error("Need at least 4 points")
             } else {
-                let modified = flap_impl(&pts, hinge_x_frac, deflection_deg);
+                let modified = flap_impl(&pts, hinge_x_frac, hinge_y_frac, deflection_deg);
                 GeometryResult { coords: points_to_flat(&modified), success: true, error: None }
             }
         }
@@ -2733,7 +2735,109 @@ pub fn gdes_flap(coords: &[f64], hinge_x_frac: f64, deflection_deg: f64) -> JsVa
     serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
 }
 
-fn flap_impl(pts: &[Point], hinge_x_frac: f64, deflection_deg: f64) -> Vec<Point> {
+/// Interpolate y on a surface (sequence of points ordered by increasing x)
+/// at the given x. Returns None if x is outside the range.
+fn interp_y_at_x(surface: &[Point], x: f64) -> Option<f64> {
+    for pair in surface.windows(2) {
+        let (a, b) = (&pair[0], &pair[1]);
+        if (a.x <= x && b.x >= x) || (b.x <= x && a.x >= x) {
+            let dx = b.x - a.x;
+            let t = if dx.abs() > 1e-12 { (x - a.x) / dx } else { 0.5 };
+            return Some(a.y + t * (b.y - a.y));
+        }
+    }
+    None
+}
+
+/// 2D line-segment intersection. Returns the point where (a1→a2) crosses
+/// (b1→b2), or None if the segments don't intersect within their spans.
+fn seg_intersect(a1: Point, a2: Point, b1: Point, b2: Point) -> Option<Point> {
+    let d1x = a2.x - a1.x;
+    let d1y = a2.y - a1.y;
+    let d2x = b2.x - b1.x;
+    let d2y = b2.y - b1.y;
+    let denom = d1x * d2y - d1y * d2x;
+    if denom.abs() < 1e-15 { return None; }
+    let dx = b1.x - a1.x;
+    let dy = b1.y - a1.y;
+    let t = (dx * d2y - dy * d2x) / denom;
+    let u = (dx * d1y - dy * d1x) / denom;
+    if t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0 {
+        Some(point(a1.x + t * d1x, a1.y + t * d1y))
+    } else {
+        None
+    }
+}
+
+/// Process one surface (LE→TE) through a flap deflection.
+///
+/// Splits into fore (fixed, x ≤ hinge) and aft (rotated). If the rotated aft
+/// folds back over the fore (like XFOIL's "disappeared" surface segment), finds
+/// the intersection, trims both sides to it, and joins cleanly.
+fn flap_surface(
+    surface: &[Point],
+    hinge_x: f64,
+    hinge_y: f64,
+    cos_d: f64,
+    sin_d: f64,
+) -> Vec<Point> {
+    let mut fore: Vec<Point> = Vec::new();
+    let mut aft: Vec<Point> = Vec::new();
+
+    for &p in surface {
+        if p.x <= hinge_x {
+            fore.push(p);
+        } else {
+            let dx = p.x - hinge_x;
+            let dy = p.y - hinge_y;
+            aft.push(point(
+                hinge_x + dx * cos_d + dy * sin_d,
+                hinge_y - dx * sin_d + dy * cos_d,
+            ));
+        }
+    }
+
+    if fore.is_empty() { return aft; }
+    if aft.is_empty() { return fore; }
+
+    // Search for intersection between the tail of the fore polyline and the
+    // head of the aft polyline. This is the "break point" where the surfaces meet.
+    let n_fore = fore.len();
+    let n_aft = aft.len();
+    let check_fore = n_fore.min(50);
+    let check_aft = n_aft.min(50);
+
+    let mut best: Option<(usize, usize, Point)> = None;
+
+    'outer: for i in ((n_fore.saturating_sub(check_fore))..n_fore.saturating_sub(1)).rev() {
+        for j in 0..check_aft.saturating_sub(1) {
+            if let Some(pt) = seg_intersect(fore[i], fore[i + 1], aft[j], aft[j + 1]) {
+                best = Some((i, j + 1, pt));
+                break 'outer;
+            }
+        }
+    }
+
+    match best {
+        Some((fi, ai, pt)) => {
+            // Trim: keep fore up to the crossing segment, add intersection, then
+            // aft from after the crossing — deleting the folded region between them.
+            let mut result = Vec::with_capacity(fi + 2 + n_aft - ai);
+            result.extend_from_slice(&fore[..=fi]);
+            result.push(pt);
+            result.extend_from_slice(&aft[ai..]);
+            result
+        }
+        None => {
+            // No fold — just concatenate (gap side; rendering spline bridges it)
+            let mut result = fore;
+            result.extend(aft);
+            result
+        }
+    }
+}
+
+fn flap_impl(pts: &[Point], hinge_x_frac: f64, hinge_y_frac: f64, deflection_deg: f64) -> Vec<Point> {
     let le_idx = pts.iter().enumerate()
         .min_by(|(_, a), (_, b)| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(i, _)| i).unwrap_or(0);
@@ -2743,53 +2847,28 @@ fn flap_impl(pts: &[Point], hinge_x_frac: f64, deflection_deg: f64) -> Vec<Point
     let chord = (x_max - x_min).max(1e-10);
     let hinge_x = x_min + hinge_x_frac * chord;
 
-    let spline = match CubicSpline::from_points(pts) {
-        Ok(s) => s,
-        Err(_) => return pts.to_vec(),
-    };
+    // Split into upper (LE→TE) and lower (LE→TE).
+    // Input convention: pts[0]=TE upper, …, pts[le_idx]=LE, …, pts[last]=TE lower.
+    let upper: Vec<Point> = pts[..=le_idx].iter().rev().cloned().collect();
+    let lower: Vec<Point> = pts[le_idx..].iter().cloned().collect();
 
-    let hinge_s = spline.total_arc_length() * 0.5;
-    let hinge_pt = spline.evaluate(hinge_s);
-    let hinge_y = hinge_pt.y;
-
-    let le_y_at_hinge = {
-        let upper_pts: Vec<&Point> = pts[le_idx..].iter().collect();
-        let lower_pts: Vec<&Point> = pts[..=le_idx].iter().rev().collect();
-        let y_upper = upper_pts.iter().rev()
-            .zip(upper_pts.iter().rev().skip(1))
-            .find(|(_, b)| b.x <= hinge_x)
-            .map(|(a, b)| {
-                let t = if (a.x - b.x).abs() > 1e-12 { (hinge_x - b.x) / (a.x - b.x) } else { 0.5 };
-                b.y + t * (a.y - b.y)
-            })
-            .unwrap_or(hinge_y);
-        let y_lower = lower_pts.iter().rev()
-            .zip(lower_pts.iter().rev().skip(1))
-            .find(|(_, b)| b.x <= hinge_x)
-            .map(|(a, b)| {
-                let t = if (a.x - b.x).abs() > 1e-12 { (hinge_x - b.x) / (a.x - b.x) } else { 0.5 };
-                b.y + t * (a.y - b.y)
-            })
-            .unwrap_or(hinge_y);
-        (y_upper + y_lower) / 2.0
-    };
+    let y_upper = interp_y_at_x(&upper, hinge_x).unwrap_or(0.0);
+    let y_lower = interp_y_at_x(&lower, hinge_x).unwrap_or(0.0);
+    let hinge_y = y_lower + hinge_y_frac.clamp(0.0, 1.0) * (y_upper - y_lower);
 
     let rad = deflection_deg.to_radians();
     let cos_d = rad.cos();
     let sin_d = rad.sin();
 
-    pts.iter().map(|p| {
-        if p.x > hinge_x {
-            let dx = p.x - hinge_x;
-            let dy = p.y - hinge_y;
-            point(
-                hinge_x + dx * cos_d + dy * sin_d,
-                hinge_y - dx * sin_d + dy * cos_d,
-            )
-        } else {
-            *p
-        }
-    }).collect()
+    // Process each surface: rotate aft points, find intersection where the
+    // rotated curve meets the fixed curve, trim the fold (like XFOIL SSS+FLAP).
+    let upper_flapped = flap_surface(&upper, hinge_x, hinge_y, cos_d, sin_d);
+    let lower_flapped = flap_surface(&lower, hinge_x, hinge_y, cos_d, sin_d);
+
+    // Reassemble: TE→LE (upper reversed) then LE→TE (lower, skip shared LE)
+    let mut result: Vec<Point> = upper_flapped.into_iter().rev().collect();
+    result.extend(lower_flapped.into_iter().skip(1));
+    result
 }
 
 /// Set leading-edge radius by scaling the forward portion of the airfoil.

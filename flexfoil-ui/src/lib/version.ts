@@ -19,6 +19,10 @@ export const CHANGELOG: ChangelogEntry[] = [
       { category: 'added', text: 'Automatic L/D ratio column in Data Explorer, Plot Builder, and Polar plots' },
       { category: 'added', text: 'Custom computed columns — define algebraic expressions over existing data fields' },
       { category: 'added', text: 'Version & changelog dialogs accessible from the Help menu' },
+      { category: 'added', text: 'Editable flap object model — add, edit, and remove multiple flaps with per-flap hinge y control' },
+      { category: 'added', text: 'Flap definitions persisted in run database (flaps_json column)' },
+      { category: 'fixed', text: 'Flap hinge y-coordinate was computed at arc-length midpoint instead of the actual hinge x station' },
+      { category: 'fixed', text: 'Flap deflection now inserts break points at the hinge for a clean geometric discontinuity' },
     ],
   },
   {

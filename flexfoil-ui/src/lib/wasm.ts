@@ -1005,14 +1005,18 @@ export function setTeGap(
     return gdesResultToPoints(result);
 }
 
-/** Apply a trailing-edge flap deflection. hingeXFrac is hinge location as fraction of chord. */
+/** Apply a trailing-edge flap deflection.
+ *  hingeXFrac: hinge x as fraction of chord.
+ *  hingeYFrac: hinge y as fraction of local thickness (0=lower, 0.5=mid, 1=upper).
+ */
 export function deflectFlap(
     coordinates: { x: number; y: number }[],
     hingeXFrac: number,
+    hingeYFrac: number,
     deflectionDeg: number,
 ): { x: number; y: number }[] {
     if (!initialized) throw new Error('WASM not initialized.');
-    const result = gdes_flap(pointsToFlat(coordinates), hingeXFrac, deflectionDeg) as GeometryResult;
+    const result = gdes_flap(pointsToFlat(coordinates), hingeXFrac, hingeYFrac, deflectionDeg) as GeometryResult;
     return gdesResultToPoints(result);
 }
 

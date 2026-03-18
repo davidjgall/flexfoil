@@ -199,6 +199,7 @@ export interface RunRow {
   created_at: string;
   session_id: string | null;
   geometry_snapshot: RunGeometrySnapshot | null;
+  flaps: FlapDefinition[] | null;
   ld: number | null;
 }
 
@@ -257,12 +258,21 @@ export interface InverseDesignState {
   history: { iteration: number; rms_error: number; max_error: number; cl: number; cd: number }[];
 }
 
-/** Geometry design (GDES) state for flap, TE gap, LE radius, transforms */
+/** A single flap definition with hinge location and deflection */
+export interface FlapDefinition {
+  id: string;
+  /** Hinge x-position as fraction of chord (0.5 – 0.95) */
+  hingeX: number;
+  /** Hinge y-position as fraction of local thickness (0 = lower, 0.5 = mid, 1 = upper) */
+  hingeYFrac: number;
+  /** Deflection in degrees (positive = down) */
+  deflection: number;
+}
+
+/** Geometry design (GDES) state for flaps, TE gap, LE radius, transforms */
 export interface GeometryDesignState {
-  /** Flap hinge x-position as fraction of chord */
-  flapHingeX: number;
-  /** Flap deflection in degrees */
-  flapDeflection: number;
+  /** Ordered list of flap definitions (applied sequentially) */
+  flaps: FlapDefinition[];
   /** Trailing-edge gap as fraction of chord */
   teGap: number;
   /** TE gap blend fraction */

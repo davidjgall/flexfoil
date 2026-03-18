@@ -126,6 +126,7 @@ export const localApiBackend: StorageBackend = {
         error: run.error,
         coordinates_json: run.coordinates_json,
         panels_json: run.panels_json,
+        flaps_json: run.flaps_json,
       }),
     });
     const { id } = await resp.json();

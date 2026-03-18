@@ -6,7 +6,7 @@
 
 import initSqlJs, { type Database } from 'sql.js';
 import { openDB, type IDBPDatabase } from 'idb';
-import type { AirfoilPoint, RunGeometrySnapshot, RunRow, SolverMode } from '../types';
+import type { AirfoilPoint, FlapDefinition, RunGeometrySnapshot, RunRow, SolverMode } from '../types';
 import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 
 const DB_NAME = 'flexfoil-runs';
@@ -81,6 +81,7 @@ const REQUIRED_COLUMNS: Array<{ name: string; definition: string }> = [
   { name: 'solver_mode', definition: "TEXT NOT NULL DEFAULT 'viscous'" },
   { name: 'coordinates_json', definition: 'TEXT' },
   { name: 'panels_json', definition: 'TEXT' },
+  { name: 'flaps_json', definition: 'TEXT' },
 ];
 
 function ensureSchemaColumns(): void {
@@ -153,6 +154,7 @@ export interface RunInsert {
   solver_mode: SolverMode;
   coordinates_json: string | null;
   panels_json: string | null;
+  flaps_json: string | null;
 }
 
 export async function insertRun(run: RunInsert): Promise<number> {
@@ -161,8 +163,8 @@ export async function insertRun(run: RunInsert): Promise<number> {
     `INSERT OR IGNORE INTO runs
        (airfoil_name, airfoil_hash, alpha, reynolds, mach, ncrit, n_panels, max_iter,
         cl, cd, cm, converged, iterations, residual, x_tr_upper, x_tr_lower,
-       solver_mode, success, error, coordinates_json, panels_json, session_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       solver_mode, success, error, coordinates_json, panels_json, flaps_json, session_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       run.airfoil_name,
       run.airfoil_hash,
@@ -185,6 +187,7 @@ export async function insertRun(run: RunInsert): Promise<number> {
       run.error,
       run.coordinates_json,
       run.panels_json,
+      run.flaps_json,
       getSessionId(),
     ]
   );
@@ -301,6 +304,24 @@ function parseGeometrySnapshot(
   return { coordinates, panels };
 }
 
+function parseFlapsJson(json: unknown): FlapDefinition[] | null {
+  if (typeof json !== 'string' || json.trim() === '') return null;
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter(
+      (f): f is FlapDefinition =>
+        typeof f === 'object' && f !== null &&
+        typeof f.id === 'string' &&
+        typeof f.hingeX === 'number' &&
+        typeof f.hingeYFrac === 'number' &&
+        typeof f.deflection === 'number',
+    );
+  } catch {
+    return null;
+  }
+}
+
 function rowToRunRow(columns: string[], values: (string | number | null | Uint8Array)[]): RunRow {
   const obj: Record<string, unknown> = {};
   columns.forEach((col, i) => {
@@ -330,6 +351,7 @@ function rowToRunRow(columns: string[], values: (string | number | null | Uint8A
     created_at: obj.created_at as string,
     session_id: obj.session_id as string | null,
     geometry_snapshot: parseGeometrySnapshot(obj.coordinates_json, obj.panels_json),
+    flaps: parseFlapsJson(obj.flaps_json),
     ld: (obj.cl != null && obj.cd != null && Math.abs(obj.cd as number) > 1e-10)
       ? (obj.cl as number) / (obj.cd as number)
       : null,

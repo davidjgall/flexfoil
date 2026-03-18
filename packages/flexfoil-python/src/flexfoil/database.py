@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS runs (
   error         TEXT,
   coordinates_json TEXT,
   panels_json   TEXT,
+  flaps_json    TEXT,
   created_at    TEXT DEFAULT (datetime('now')),
   session_id    TEXT
 );
@@ -52,6 +53,13 @@ CREATE TABLE IF NOT EXISTS airfoils (
 
 MAX_ROWS = 50_000
 
+_REQUIRED_COLUMNS: list[tuple[str, str]] = [
+    ("solver_mode", "TEXT NOT NULL DEFAULT 'viscous'"),
+    ("coordinates_json", "TEXT"),
+    ("panels_json", "TEXT"),
+    ("flaps_json", "TEXT"),
+]
+
 
 def default_db_path() -> Path:
     base = Path(os.environ.get("FLEXFOIL_DATA_DIR", "~/.flexfoil")).expanduser()
@@ -69,7 +77,18 @@ class RunDatabase:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(_SCHEMA)
+        self._ensure_columns()
         self._conn.commit()
+
+    def _ensure_columns(self) -> None:
+        """Add any columns that are missing from an older schema."""
+        cur = self._conn.execute("PRAGMA table_info('runs')")
+        existing = {row[1] for row in cur.fetchall()}
+        for col_name, col_def in _REQUIRED_COLUMNS:
+            if col_name not in existing:
+                self._conn.execute(
+                    f"ALTER TABLE runs ADD COLUMN {col_name} {col_def}"
+                )
 
     def insert_run(
         self,
@@ -95,6 +114,7 @@ class RunDatabase:
         error: str | None = None,
         coordinates_json: str | None = None,
         panels_json: str | None = None,
+        flaps_json: str | None = None,
         session_id: str | None = None,
     ) -> int:
         cur = self._conn.execute(
@@ -102,8 +122,8 @@ class RunDatabase:
                (airfoil_name, airfoil_hash, alpha, reynolds, mach, ncrit,
                 n_panels, max_iter, cl, cd, cm, converged, iterations, residual,
                 x_tr_upper, x_tr_lower, solver_mode, success, error,
-                coordinates_json, panels_json, session_id)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                coordinates_json, panels_json, flaps_json, session_id)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 airfoil_name,
                 airfoil_hash,
@@ -126,6 +146,7 @@ class RunDatabase:
                 error,
                 coordinates_json,
                 panels_json,
+                flaps_json,
                 session_id,
             ),
         )

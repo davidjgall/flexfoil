@@ -52,6 +52,7 @@ export function SolvePanel() {
     ncrit,
     maxIterations,
     solverMode,
+    geometryDesign,
     setDisplayAlpha,
     setReynolds,
     setMach,
@@ -285,6 +286,9 @@ export function SolvePanel() {
       error: res.error ?? null,
       coordinates_json: serializePoints(coordinates),
       panels_json: serializePoints(panels),
+      flaps_json: geometryDesign.flaps.length > 0
+        ? JSON.stringify(geometryDesign.flaps)
+        : null,
     };
     await addRun(run);
 
