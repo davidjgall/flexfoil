@@ -1,0 +1,18 @@
+[package]
+name = "rustfoil-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Python bindings for RustFoil airfoil analysis (via PyO3)"
+
+[lib]
+name = "_rustfoil"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustfoil-core = { path = "../rustfoil-core" }
+rustfoil-solver = { path = "../rustfoil-solver" }
+rustfoil-inviscid = { path = "../rustfoil-inviscid" }
+rustfoil-xfoil = { path = "../rustfoil-xfoil" }
+pyo3 = { version = "0.23", features = ["extension-module"] }

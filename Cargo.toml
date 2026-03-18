@@ -11,6 +11,7 @@ members = [
     "crates/rustfoil-wasm",
     "crates/rustfoil-cli",
     "crates/rustfoil-inviscid", "crates/rustfoil-xfoil",
+    "crates/rustfoil-python",
 ]
 
 [workspace.package]

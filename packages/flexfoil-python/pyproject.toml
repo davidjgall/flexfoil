@@ -1,0 +1,63 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "flexfoil"
+version = "1.1.0"
+description = "Airfoil analysis in Python — XFOIL-faithful solver with a local web UI"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Harry" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+]
+keywords = ["airfoil", "aerodynamics", "xfoil", "cfd", "panel-method"]
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.urls]
+Homepage = "https://foil.flexcompute.com/flexfoil/"
+Repository = "https://github.com/flexcompute/flexfoil"
+Documentation = "https://github.com/flexcompute/flexfoil/tree/main/packages/flexfoil-python#readme"
+Issues = "https://github.com/flexcompute/flexfoil/issues"
+
+[project.optional-dependencies]
+server = [
+    "starlette>=0.36",
+    "uvicorn[standard]>=0.27",
+]
+plotting = [
+    "matplotlib>=3.7",
+]
+dataframe = [
+    "pandas>=2.0",
+]
+all = [
+    "flexfoil[server,plotting,dataframe]",
+]
+dev = [
+    "flexfoil[all]",
+    "pytest>=7",
+    "maturin>=1.5",
+]
+
+[project.scripts]
+flexfoil = "flexfoil.__main__:main"
+
+[tool.maturin]
+manifest-path = "../../crates/rustfoil-python/Cargo.toml"
+python-source = "src"
+module-name = "flexfoil._rustfoil"
+features = []
+include = [
+    { path = "src/flexfoil/_static/**", format = "sdist" },
+    { path = "src/flexfoil/_static/**", format = "wheel" },
+]

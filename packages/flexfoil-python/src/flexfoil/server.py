@@ -1,0 +1,297 @@
+"""Local web server — serves the flexfoil frontend and a REST API backed by SQLite.
+
+The frontend connects to this server's API when running in local mode,
+instead of using its built-in sql.js + IndexedDB storage.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import time
+import webbrowser
+from pathlib import Path
+from typing import AsyncGenerator
+
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response, StreamingResponse
+from starlette.routing import Mount, Route
+from starlette.staticfiles import StaticFiles
+
+from flexfoil.database import RunDatabase
+
+logger = logging.getLogger("flexfoil.server")
+
+_db: RunDatabase | None = None
+_sse_subscribers: list[asyncio.Queue] = []
+
+STATIC_DIR = Path(__file__).parent / "_static"
+
+
+def _get_db() -> RunDatabase:
+    assert _db is not None, "Database not initialized"
+    return _db
+
+
+# ---------------------------------------------------------------------------
+# SSE — Server-Sent Events for live updates
+# ---------------------------------------------------------------------------
+
+async def _broadcast(event: str, data: dict) -> None:
+    payload = f"event: {event}\ndata: {json.dumps(data)}\n\n"
+    dead: list[asyncio.Queue] = []
+    for q in _sse_subscribers:
+        try:
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            dead.append(q)
+    for q in dead:
+        _sse_subscribers.remove(q)
+
+
+async def sse_endpoint(request: Request) -> StreamingResponse:
+    queue: asyncio.Queue[str] = asyncio.Queue(maxsize=64)
+    _sse_subscribers.append(queue)
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        try:
+            yield "event: connected\ndata: {}\n\n"
+            while True:
+                msg = await queue.get()
+                yield msg
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if queue in _sse_subscribers:
+                _sse_subscribers.remove(queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# API routes
+# ---------------------------------------------------------------------------
+
+async def health(request: Request) -> JSONResponse:
+    db = _get_db()
+    return JSONResponse({
+        "status": "ok",
+        "db_path": str(db.path),
+        "run_count": db.row_count(),
+    })
+
+
+async def list_runs(request: Request) -> JSONResponse:
+    db = _get_db()
+    name = request.query_params.get("airfoil_name")
+    limit = int(request.query_params.get("limit", "1000"))
+    offset = int(request.query_params.get("offset", "0"))
+    rows = db.query_runs(airfoil_name=name, limit=limit, offset=offset)
+    return JSONResponse(rows)
+
+
+async def get_run(request: Request) -> JSONResponse:
+    db = _get_db()
+    run_id = int(request.path_params["id"])
+    row = db.get_run(run_id)
+    if row is None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return JSONResponse(row)
+
+
+async def create_run(request: Request) -> JSONResponse:
+    db = _get_db()
+    body = await request.json()
+    run_id = db.insert_run(**body)
+    await _broadcast("run_added", {"id": run_id})
+    return JSONResponse({"id": run_id}, status_code=201)
+
+
+async def delete_runs(request: Request) -> JSONResponse:
+    db = _get_db()
+    count = db.delete_all_runs()
+    await _broadcast("runs_cleared", {})
+    return JSONResponse({"deleted": count})
+
+
+async def list_airfoils(request: Request) -> JSONResponse:
+    db = _get_db()
+    return JSONResponse(db.list_airfoils())
+
+
+async def save_airfoil(request: Request) -> JSONResponse:
+    db = _get_db()
+    body = await request.json()
+    aid = db.save_airfoil(
+        name=body["name"],
+        coordinates_json=body["coordinates_json"],
+        n_panels=body.get("n_panels"),
+    )
+    return JSONResponse({"id": aid}, status_code=201)
+
+
+async def export_db(request: Request) -> Response:
+    db = _get_db()
+    data = db.export_bytes()
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": "attachment; filename=flexfoil-runs.sqlite"},
+    )
+
+
+async def import_db(request: Request) -> JSONResponse:
+    db = _get_db()
+    body = await request.body()
+    db.import_bytes(body)
+    await _broadcast("db_imported", {})
+    return JSONResponse({"status": "ok"})
+
+
+async def run_count(request: Request) -> JSONResponse:
+    db = _get_db()
+    return JSONResponse({"count": db.row_count()})
+
+
+async def lookup_cache(request: Request) -> JSONResponse:
+    db = _get_db()
+    body = await request.json()
+    row = db.lookup_cache(
+        airfoil_hash=body["airfoil_hash"],
+        alpha=body["alpha"],
+        reynolds=body["reynolds"],
+        mach=body["mach"],
+        ncrit=body["ncrit"],
+        n_panels=body["n_panels"],
+        max_iter=body["max_iter"],
+    )
+    if row is None:
+        return JSONResponse(None, status_code=200)
+    return JSONResponse(row)
+
+
+# ---------------------------------------------------------------------------
+# App factory
+# ---------------------------------------------------------------------------
+
+_LOCAL_META_TAG = '<meta name="flexfoil-local" content="true">'
+_index_html_cache: str | None = None
+
+
+async def _serve_index(request: Request) -> Response:
+    """Serve index.html with a local-mode meta tag injected."""
+    global _index_html_cache
+    if _index_html_cache is None:
+        index_path = STATIC_DIR / "index.html"
+        raw = index_path.read_text()
+        _index_html_cache = raw.replace("<head>", f"<head>\n    {_LOCAL_META_TAG}", 1)
+    return Response(_index_html_cache, media_type="text/html")
+
+
+def _build_routes() -> list:
+    routes = [
+        Route("/api/health", health),
+        Route("/api/runs", list_runs, methods=["GET"]),
+        Route("/api/runs", create_run, methods=["POST"]),
+        Route("/api/runs", delete_runs, methods=["DELETE"]),
+        Route("/api/runs/count", run_count),
+        Route("/api/runs/lookup", lookup_cache, methods=["POST"]),
+        Route("/api/runs/{id:int}", get_run),
+        Route("/api/airfoils", list_airfoils, methods=["GET"]),
+        Route("/api/airfoils", save_airfoil, methods=["POST"]),
+        Route("/api/db/export", export_db),
+        Route("/api/db/import", import_db, methods=["POST"]),
+        Route("/api/events", sse_endpoint),
+    ]
+    if STATIC_DIR.is_dir():
+        # Serve index.html with the local-mode meta tag at / and any SPA
+        # fallback path; serve other static assets normally.
+        routes.append(Route("/", _serve_index))
+        routes.append(Mount("/", app=StaticFiles(directory=str(STATIC_DIR), html=False)))
+    return routes
+
+
+def create_app(db_path: str | None = None) -> Starlette:
+    global _db
+    _db = RunDatabase(db_path)
+
+    return Starlette(
+        routes=_build_routes(),
+        middleware=[
+            Middleware(
+                CORSMiddleware,
+                allow_origins=["*"],
+                allow_methods=["*"],
+                allow_headers=["*"],
+            ),
+        ],
+    )
+
+
+def _find_free_port(host: str, preferred: int, max_attempts: int = 20) -> int:
+    """Return *preferred* if available, otherwise probe upward until a free port is found."""
+    import socket
+
+    for offset in range(max_attempts):
+        candidate = preferred + offset
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind((host, candidate))
+                return candidate
+            except OSError:
+                continue
+    # Last resort: let the OS pick
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((host, 0))
+        return s.getsockname()[1]
+
+
+def run_server(
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8420,
+    open_browser: bool = True,
+    db_path: str | None = None,
+) -> None:
+    """Start the local flexfoil server (blocking)."""
+    import uvicorn
+
+    port = _find_free_port(host, port)
+    app = create_app(db_path=db_path)
+    url = f"http://{host}:{port}"
+
+    has_static = STATIC_DIR.is_dir()
+    if has_static:
+        logger.info("Serving frontend from %s", STATIC_DIR)
+    else:
+        logger.warning(
+            "Frontend assets not found at %s — API-only mode. "
+            "Run `npm run build` in flexfoil-ui/ and copy dist/ to %s",
+            STATIC_DIR,
+            STATIC_DIR,
+        )
+
+    if open_browser and has_static:
+        import threading
+        def _open():
+            time.sleep(1.0)
+            webbrowser.open(url)
+        threading.Thread(target=_open, daemon=True).start()
+
+    print(f"flexfoil server running at {url}")
+    print(f"  Database: {_db.path if _db else 'N/A'}")
+    if has_static:
+        print(f"  Web UI:   {url}")
+    print(f"  API:      {url}/api/health")
+    print()
+
+    uvicorn.run(app, host=host, port=port, log_level="info")

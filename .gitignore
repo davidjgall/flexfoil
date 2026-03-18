@@ -90,3 +90,16 @@ cp_*.txt
 
 # Video recording artifacts
 video-clips/
+
+# Python package build artifacts
+__pycache__/
+*.pyc
+*.so
+*.dylib
+*.dSYM/
+*.egg-info/
+.venv/
+packages/flexfoil-python/src/flexfoil/_static/
+packages/flexfoil-python/dist/
+packages/flexfoil-python/*.png
+packages/flexfoil-python/*.csv
