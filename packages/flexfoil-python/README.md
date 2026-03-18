@@ -115,6 +115,22 @@ foil = flexfoil.from_coordinates(x_list, y_list, name="my shape")
 result = foil.solve(alpha=3.0, Re=1e6)
 ```
 
+### Flap deflection
+
+```python
+flapped = foil.with_flap(hinge_x=0.75, deflection=10)
+print(flapped)
+# Airfoil('NACA 2412 +flap(75%, +10.0°)', n_panels=160)
+
+result = flapped.solve(alpha=5.0, Re=1e6)
+print(result.cl)  # ~1.27 (vs 0.81 clean)
+
+# Sweep flap deflections
+for defl in [0, 5, 10, 15]:
+    f = foil.with_flap(hinge_x=0.75, deflection=defl)
+    polar = f.polar(alpha=(-4, 14, 1.0), Re=1e6)
+```
+
 ### Inviscid analysis
 
 ```python
@@ -184,6 +200,7 @@ flexfoil info                        # show config and DB location
 | `.raw_coords` | Original coordinates `list[(x, y)]` |
 | `.panel_coords` | Repaneled coordinates `list[(x, y)]` |
 | `.hash` | SHA-256 hash of panel coords (cache key) |
+| `.with_flap(hinge_x, deflection, hinge_y_frac, n_panels)` | Return new Airfoil with flap deflected |
 | `.solve(alpha, Re, mach, ncrit, max_iter, viscous, store)` | Single-point analysis |
 | `.polar(alpha, Re, mach, ncrit, max_iter, viscous, store, parallel)` | Sweep over alpha range (parallel by default) |
 
@@ -282,6 +299,9 @@ See the [`examples/`](examples/) directory:
 | `07_inviscid_vs_viscous.py` | Inviscid vs viscous comparison |
 | `08_batch_matrix.py` | Batch sweep: airfoils x Re x alpha |
 | `09_custom_coordinates.py` | Build airfoil from x, y arrays |
+| `10_flap_study.py` | Sweep flap deflections (0-20 deg) |
+| `11_flap_hinge_sweep.py` | Find optimal hinge position for L/D |
+| `12_matrix_sweep.py` | Alpha x Re matrix for a flapped airfoil |
 
 ## Supported platforms
 
@@ -312,7 +332,7 @@ pip install starlette 'uvicorn[standard]' matplotlib pandas pytest
 # Build and install in development mode
 maturin develop
 
-# Run tests (28 tests)
+# Run tests (112 tests)
 pytest tests/ -v
 
 # Bundle the web UI (optional, for `flexfoil serve`)
