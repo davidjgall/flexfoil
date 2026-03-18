@@ -1,8 +1,5 @@
 """Tests for the high-level Python API (Airfoil, solve, polar)."""
 
-import tempfile
-import os
-
 import pytest
 
 
@@ -14,10 +11,13 @@ def _use_tmp_db(tmp_path, monkeypatch):
     flexfoil.database._default_db = None
 
 
-class TestAirfoil:
+# ---------------------------------------------------------------------------
+# Airfoil creation
+# ---------------------------------------------------------------------------
+
+class TestAirfoilCreation:
     def test_from_naca(self):
         import flexfoil
-
         foil = flexfoil.naca("2412")
         assert foil.name == "NACA 2412"
         assert foil.n_panels == 160
@@ -25,63 +25,221 @@ class TestAirfoil:
 
     def test_from_naca_short(self):
         import flexfoil
-
         foil = flexfoil.naca("12")
         assert foil.name == "NACA 0012"
         assert foil.n_panels == 160
 
+    def test_from_naca_custom_panels(self):
+        import flexfoil
+        foil = flexfoil.naca("2412", n_panels=80)
+        assert foil.n_panels == 80
+
     def test_hash_deterministic(self):
         import flexfoil
-
         f1 = flexfoil.naca("2412")
         f2 = flexfoil.naca("2412")
         assert f1.hash == f2.hash
 
     def test_hash_differs_across_foils(self):
         import flexfoil
-
         f1 = flexfoil.naca("2412")
         f2 = flexfoil.naca("0012")
         assert f1.hash != f2.hash
 
+    def test_from_coordinates(self):
+        import flexfoil
+        base = flexfoil.naca("0012")
+        x = [p[0] for p in base.raw_coords]
+        y = [p[1] for p in base.raw_coords]
+        foil = flexfoil.from_coordinates(x, y, name="custom")
+        assert foil.name == "custom"
+        assert foil.n_panels > 0
+
+    def test_from_coordinates_mismatched_lengths(self):
+        import flexfoil
+        with pytest.raises(ValueError, match="same length"):
+            flexfoil.from_coordinates([0, 1], [0], name="bad")
+
+    def test_repr(self):
+        import flexfoil
+        foil = flexfoil.naca("2412")
+        assert "NACA 2412" in repr(foil)
+        assert "n_panels=160" in repr(foil)
+
+
+# ---------------------------------------------------------------------------
+# Single-point solve
+# ---------------------------------------------------------------------------
 
 class TestSolve:
     def test_viscous_solve(self):
         import flexfoil
-
         foil = flexfoil.naca("2412")
         result = foil.solve(alpha=5.0, Re=1e6)
         assert result.success
         assert result.converged
         assert result.cl > 0.5
-        assert result.cd > 0
-        assert result.cd < 0.1
+        assert 0 < result.cd < 0.1
 
     def test_inviscid_solve(self):
         import flexfoil
-
         foil = flexfoil.naca("2412")
         result = foil.solve(alpha=5.0, viscous=False)
         assert result.success
         assert result.cl > 0.5
         assert result.cd == 0.0
 
-    def test_run_stored_in_db(self):
+    def test_solve_result_ld(self):
         import flexfoil
+        foil = flexfoil.naca("2412")
+        result = foil.solve(alpha=5.0, Re=1e6)
+        assert result.ld is not None
+        assert result.ld > 10
 
+    def test_inviscid_ld_is_none(self):
+        import flexfoil
+        foil = flexfoil.naca("2412")
+        result = foil.solve(alpha=5.0, viscous=False)
+        assert result.ld is None
+
+    def test_solve_result_repr(self):
+        import flexfoil
+        foil = flexfoil.naca("2412")
+        result = foil.solve(alpha=5.0, Re=1e6)
+        r = repr(result)
+        assert "CL=" in r
+        assert "CD=" in r
+        assert "converged" in r
+
+    def test_solve_at_zero_alpha_symmetric(self):
+        import flexfoil
+        foil = flexfoil.naca("0012")
+        result = foil.solve(alpha=0.0, Re=1e6)
+        assert result.success
+        assert abs(result.cl) < 0.01
+
+    def test_solve_stores_in_db(self):
+        import flexfoil
         foil = flexfoil.naca("0012")
         foil.solve(alpha=0.0, Re=1e6)
         runs = flexfoil.runs()
         assert len(runs) >= 1
 
+    def test_solve_store_false(self):
+        import flexfoil
+        foil = flexfoil.naca("0012")
+        foil.solve(alpha=0.0, Re=1e6, store=False)
+        runs = flexfoil.runs()
+        assert len(runs) == 0
+
+    def test_solve_different_re(self):
+        import flexfoil
+        foil = flexfoil.naca("2412")
+        r1 = foil.solve(alpha=5.0, Re=1e5)
+        r2 = foil.solve(alpha=5.0, Re=3e6)
+        assert r1.cd > r2.cd  # lower Re => higher drag
+
+
+# ---------------------------------------------------------------------------
+# Polar sweep
+# ---------------------------------------------------------------------------
 
 class TestPolar:
     def test_polar_sweep(self):
         import flexfoil
-
         foil = flexfoil.naca("2412")
         polar = foil.polar(alpha=(0, 5, 2.5), Re=1e6)
         assert len(polar.results) == 3
         assert len(polar.converged) >= 2
-        assert len(polar.alpha) >= 2
-        assert len(polar.cl) >= 2
+
+    def test_polar_properties(self):
+        import flexfoil
+        foil = flexfoil.naca("2412")
+        polar = foil.polar(alpha=(0, 4, 2.0), Re=1e6)
+        assert len(polar.alpha) == len(polar.cl) == len(polar.cd) == len(polar.cm)
+
+    def test_polar_to_dict(self):
+        import flexfoil
+        foil = flexfoil.naca("2412")
+        polar = foil.polar(alpha=(0, 4, 2.0), Re=1e6)
+        d = polar.to_dict()
+        assert set(d.keys()) == {"alpha", "cl", "cd", "cm", "ld"}
+
+    def test_polar_repr(self):
+        import flexfoil
+        foil = flexfoil.naca("2412")
+        polar = foil.polar(alpha=(0, 4, 2.0), Re=1e6)
+        r = repr(polar)
+        assert "NACA 2412" in r
+        assert "converged" in r
+
+    def test_polar_inviscid(self):
+        import flexfoil
+        foil = flexfoil.naca("0012")
+        polar = foil.polar(alpha=(0, 4, 2.0), Re=1e6, viscous=False)
+        assert all(cd == 0.0 for cd in polar.cd)
+
+    def test_polar_plot_plotly(self):
+        import flexfoil
+        foil = flexfoil.naca("2412")
+        polar = foil.polar(alpha=(0, 4, 2.0), Re=1e6)
+        fig = polar.plot(show=False)
+        assert fig is not None
+
+    def test_polar_plot_matplotlib(self):
+        import flexfoil
+        import matplotlib
+        matplotlib.use("Agg")
+        foil = flexfoil.naca("2412")
+        polar = foil.polar(alpha=(0, 4, 2.0), Re=1e6)
+        fig = polar.plot(show=False, backend="matplotlib")
+        assert fig is not None
+
+
+# ---------------------------------------------------------------------------
+# Pandas integration
+# ---------------------------------------------------------------------------
+
+class TestPandas:
+    def test_polar_to_dataframe(self):
+        import flexfoil
+        foil = flexfoil.naca("2412")
+        polar = foil.polar(alpha=(0, 4, 2.0), Re=1e6)
+        df = polar.to_dataframe()
+        assert "cl" in df.columns
+        assert "cd" in df.columns
+        assert len(df) >= 2
+
+    def test_runs_returns_dataframe(self):
+        import flexfoil
+        foil = flexfoil.naca("2412")
+        foil.solve(alpha=5.0, Re=1e6)
+        df = flexfoil.runs()
+        import pandas as pd
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) >= 1
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+class TestCli:
+    def test_info(self, capsys):
+        from flexfoil.__main__ import main
+        main(["info"])
+        out = capsys.readouterr().out
+        assert "flexfoil" in out
+        assert "Database" in out
+
+    def test_solve_naca(self, capsys):
+        from flexfoil.__main__ import main
+        main(["solve", "2412", "-a", "5", "-r", "1e6"])
+        out = capsys.readouterr().out
+        assert "CL=" in out
+
+    def test_no_args_prints_help(self, capsys):
+        from flexfoil.__main__ import main
+        main([])
+        out = capsys.readouterr().out
+        assert "usage" in out.lower() or "flexfoil" in out.lower()
