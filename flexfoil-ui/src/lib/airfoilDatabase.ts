@@ -25,7 +25,8 @@ async function fetchDatText(file: string): Promise<string> {
   const cached = _datCache.get(file);
   if (cached) return cached;
 
-  const resp = await fetch(`/api/uiuc-proxy/${file}.dat`);
+  const base = import.meta.env.BASE_URL ?? '/';
+  const resp = await fetch(`${base}airfoils/${file}.dat`);
   if (!resp.ok) {
     throw new Error(`Failed to fetch ${file}.dat (HTTP ${resp.status})`);
   }
