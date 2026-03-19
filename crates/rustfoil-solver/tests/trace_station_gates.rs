@@ -17,6 +17,19 @@ fn load_trace(path: &str) -> Value {
     serde_json::from_reader(BufReader::new(file)).expect("valid trace json")
 }
 
+fn skip_without_alpha4_trace_pair() -> bool {
+    let root = workspace_root();
+    let xf = root.join("traces/xfoil/naca0012/re3e06/alpha_+004.0.json");
+    let rf = root.join("traces/rustfoil/naca0012/re3e06/alpha_+004.0.json");
+    if !(xf.exists() && rf.exists()) {
+        eprintln!(
+            "[SKIP] trace_station_gates needs paired XFOIL/RustFoil JSON traces under traces/.../naca0012/re3e06/"
+        );
+        return true;
+    }
+    false
+}
+
 fn first_blvar_event(trace: &Value, side: i64, ibl: i64) -> Option<&Value> {
     trace["events"].as_array()?.iter().find(|event| {
         event["subroutine"].as_str() == Some("BLVAR")
@@ -51,6 +64,9 @@ fn blvar_output(trace: &Value, side: i64, ibl: i64, key: &str) -> f64 {
 
 #[test]
 fn test_alpha4_upper_station_windows_and_transition_gate() {
+    if skip_without_alpha4_trace_pair() {
+        return;
+    }
     let xfoil = load_trace("traces/xfoil/naca0012/re3e06/alpha_+004.0.json");
     let rust = load_trace("traces/rustfoil/naca0012/re3e06/alpha_+004.0.json");
 
@@ -95,6 +111,9 @@ fn test_alpha4_upper_station_windows_and_transition_gate() {
 
 #[test]
 fn test_alpha10_alpha12_upper_station_windows_keep_ue_locked() {
+    if skip_without_alpha4_trace_pair() {
+        return;
+    }
     for alpha_path in [
         "traces/xfoil/naca0012/re3e06/alpha_+010.0.json",
         "traces/xfoil/naca0012/re3e06/alpha_+012.0.json",
@@ -128,6 +147,9 @@ fn test_alpha10_alpha12_upper_station_windows_keep_ue_locked() {
 
 #[test]
 fn test_alpha4_lower_station_windows() {
+    if skip_without_alpha4_trace_pair() {
+        return;
+    }
     let xfoil = load_trace("traces/xfoil/naca0012/re3e06/alpha_+004.0.json");
     let rust = load_trace("traces/rustfoil/naca0012/re3e06/alpha_+004.0.json");
 
@@ -165,6 +187,9 @@ fn test_alpha4_lower_station_windows() {
 
 #[test]
 fn test_alpha4_post_transition_windows() {
+    if skip_without_alpha4_trace_pair() {
+        return;
+    }
     let xfoil = load_trace("traces/xfoil/naca0012/re3e06/alpha_+004.0.json");
     let rust = load_trace("traces/rustfoil/naca0012/re3e06/alpha_+004.0.json");
 

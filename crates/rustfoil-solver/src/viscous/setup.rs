@@ -1480,8 +1480,16 @@ mod tests {
 
         assert_eq!(stations.len(), 4);
 
-        // First station should have stagnation initialization
-        assert!((stations[0].h - 2.216).abs() < 0.01);
+        // First station should match `BlStation::stagnation` for the same seed inputs
+        let x_stag = arc_lengths[0].max(1e-12);
+        let ue_stag = ue[0].abs().max(0.01);
+        let expected = BlStation::stagnation(x_stag, ue_stag, re);
+        assert!(
+            (stations[0].h - expected.h).abs() < 1e-9,
+            "h={} expected {}",
+            stations[0].h,
+            expected.h
+        );
 
         // All stations should have correct x and u
         for (i, station) in stations.iter().enumerate() {
@@ -1500,8 +1508,16 @@ mod tests {
 
         assert_eq!(stations.len(), 5);
 
-        // First station should be stagnation-like
-        assert!((stations[0].h - 2.216).abs() < 0.01);
+        // Virtual stagnation anchor uses the first downstream station as Thwaites seed
+        let seed_x = arc_lengths[1].abs().max(1e-12);
+        let seed_ue = ue[1].abs().max(0.01);
+        let expected = BlStation::stagnation(seed_x, seed_ue, re);
+        assert!(
+            (stations[0].h - expected.h).abs() < 1e-9,
+            "h={} expected {}",
+            stations[0].h,
+            expected.h
+        );
 
         // All should be laminar initially
         for station in &stations {

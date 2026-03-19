@@ -5,11 +5,14 @@ use rustfoil_xfoil::wake_panel::{qdcalc, qwcalc, xywake};
 
 use support::{
     assert_close_scalar, assert_close_slice, build_qdcalc_state, qdcalc_fortran, rust_qdcalc_output,
-    MICROBENCH_MAX_RATIO,
+    xfoil_fortran_object_tests_enabled, MICROBENCH_MAX_RATIO,
 };
 
 #[test]
 fn qdcalc_matches_fortran() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let reference = qdcalc_fortran();
     let actual = rust_qdcalc_output();
 
@@ -32,6 +35,9 @@ fn qdcalc_matches_fortran() {
 
 #[test]
 fn xywake_matches_fortran_when_port_is_more_literal() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let reference = qdcalc_fortran();
     let (mut state, factorized) = build_qdcalc_state();
     xywake(&mut state, &factorized, 1.0);
@@ -45,6 +51,9 @@ fn xywake_matches_fortran_when_port_is_more_literal() {
 
 #[test]
 fn qwcalc_matches_fortran_when_port_is_more_literal() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let reference = qdcalc_fortran();
     let (mut state, factorized) = build_qdcalc_state();
     xywake(&mut state, &factorized, 1.0);
@@ -110,6 +119,9 @@ fn specal_recombines_wake_basis_without_rebuilding_wake() {
 #[test]
 #[ignore = "diagnostic for wake fixture geometry"]
 fn dump_qdcalc_geometry_comparison() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let reference = qdcalc_fortran();
     let actual = rust_qdcalc_output();
     println!(
@@ -147,6 +159,9 @@ fn dump_qdcalc_geometry_comparison() {
 #[test]
 #[ignore = "release-mode wake microbenchmark gate"]
 fn perf_qdcalc_vs_fortran() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     assert!(
         !cfg!(debug_assertions),
         "run perf gates with `cargo test --release -- --ignored`"

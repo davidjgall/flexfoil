@@ -3702,12 +3702,10 @@ mod tests {
         let ue_from_mass_upper = ue_current_upper.clone();
         let ue_from_mass_lower = ue_current_lower.clone();
         let flow_types = vec![FlowType::Turbulent; 2];
-        let transitions = vec![None, None];
 
         system.build_surface_equations(
             &upper,
             &flow_types,
-            &transitions,
             &ue_current_upper,
             &ue_from_mass_upper,
             9.0,
@@ -3718,7 +3716,6 @@ mod tests {
         system.build_surface_equations(
             &lower,
             &flow_types,
-            &transitions,
             &ue_current_lower,
             &ue_from_mass_lower,
             9.0,

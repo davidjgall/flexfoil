@@ -48,11 +48,26 @@ fn workspace_root() -> PathBuf {
 }
 
 fn load_naca2412_coords() -> Vec<(f64, f64)> {
-    let path = workspace_root().join("naca2412_xfoil_paneled.dat");
-    let content = fs::read_to_string(&path)
-        .unwrap_or_else(|_| panic!("failed to read {:?}", path));
+    let candidates = [
+        workspace_root().join("testdata/naca2412.dat"),
+        workspace_root().join("naca2412_xfoil_paneled.dat"),
+    ];
+    let mut content = String::new();
+    let mut used = None;
+    for path in &candidates {
+        if let Ok(c) = fs::read_to_string(path) {
+            content = c;
+            used = Some(path.clone());
+            break;
+        }
+    }
+    let Some(path) = used else {
+        panic!(
+            "no NACA 2412 coordinates found (tried testdata/naca2412.dat and naca2412_xfoil_paneled.dat)"
+        );
+    };
 
-    content
+    let coords: Vec<(f64, f64)> = content
         .lines()
         .filter_map(|line| {
             let parts: Vec<_> = line.split_whitespace().collect();
@@ -62,7 +77,23 @@ fn load_naca2412_coords() -> Vec<(f64, f64)> {
                 None
             }
         })
-        .collect()
+        .collect();
+    assert!(
+        !coords.is_empty(),
+        "parsed zero coordinates from {:?}",
+        path
+    );
+    coords
+}
+
+fn skip_without_structural_traces() -> bool {
+    if !xfoil_trace_path(-15).exists() {
+        eprintln!(
+            "[SKIP] structural_viscous_parity needs traces/xfoil/naca2412/re3e06/*.json (not in default checkout)"
+        );
+        return true;
+    }
+    false
 }
 
 fn alpha_trace_name(alpha_deg: i32) -> String {
@@ -584,6 +615,9 @@ fn build_divergence_report(alpha_deg: i32) -> DivergenceReport {
 
 #[test]
 fn test_naca2412_high_alpha_initial_setup_signature() {
+    if skip_without_structural_traces() {
+        return;
+    }
     let comparisons: Vec<_> = [12, 15].into_iter().map(compare_markers).collect();
     write_summary("naca2412_high_alpha_setup.json", &comparisons);
 
@@ -608,6 +642,9 @@ fn test_naca2412_high_alpha_initial_setup_signature() {
 
 #[test]
 fn test_naca2412_full_structural_sweep_gate() {
+    if skip_without_structural_traces() {
+        return;
+    }
     let comparisons: Vec<_> = STRUCTURAL_SWEEP_ALPHAS
         .iter()
         .copied()
@@ -648,6 +685,9 @@ fn test_naca2412_full_structural_sweep_gate() {
 
 #[test]
 fn test_naca2412_first_divergence_sweep() {
+    if skip_without_structural_traces() {
+        return;
+    }
     let reports: Vec<DivergenceReport> = STRUCTURAL_SWEEP_ALPHAS
         .iter()
         .copied()

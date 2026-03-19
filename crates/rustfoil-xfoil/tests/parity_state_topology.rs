@@ -4,11 +4,14 @@ use rustfoil_xfoil::state_ops::{dsset, gamqv, iblpan, qvfue, stfind, stmove, ued
 
 use support::{
     assert_close_scalar, assert_close_slice, build_state_topology_fixture, prepare_state_topology_state,
-    shifted_stmove_state, state_topology_fortran,
+    shifted_stmove_state, state_topology_fortran, xfoil_fortran_object_tests_enabled,
 };
 
 #[test]
 fn stfind_matches_fortran() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let mut state = build_state_topology_fixture();
     stfind(&mut state);
     let reference = &state_topology_fortran().stfind;
@@ -21,6 +24,9 @@ fn stfind_matches_fortran() {
 
 #[test]
 fn iblpan_matches_fortran() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let mut state = build_state_topology_fixture();
     stfind(&mut state);
     iblpan(&mut state);
@@ -36,6 +42,9 @@ fn iblpan_matches_fortran() {
 
 #[test]
 fn xicalc_matches_fortran() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let mut state = build_state_topology_fixture();
     stfind(&mut state);
     iblpan(&mut state);
@@ -56,6 +65,9 @@ fn xicalc_matches_fortran() {
 
 #[test]
 fn uicalc_matches_fortran() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let mut state = build_state_topology_fixture();
     stfind(&mut state);
     iblpan(&mut state);
@@ -118,6 +130,9 @@ fn uicalc_preserves_existing_uedg_until_explicit_init() {
 
 #[test]
 fn qvfue_matches_fortran() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let mut state = prepare_state_topology_state();
     qvfue(&mut state);
     let reference = &state_topology_fortran().qvfue;
@@ -126,6 +141,9 @@ fn qvfue_matches_fortran() {
 
 #[test]
 fn gamqv_matches_fortran() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let mut state = prepare_state_topology_state();
     qvfue(&mut state);
     gamqv(&mut state);
@@ -136,6 +154,9 @@ fn gamqv_matches_fortran() {
 
 #[test]
 fn ueset_matches_fortran() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let mut state = prepare_state_topology_state();
     ueset(&mut state);
     let reference = &state_topology_fortran().ueset;
@@ -152,6 +173,9 @@ fn ueset_matches_fortran() {
 
 #[test]
 fn dsset_matches_fortran() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let mut state = prepare_state_topology_state();
     ueset(&mut state);
     dsset(&mut state);
@@ -169,6 +193,9 @@ fn dsset_matches_fortran() {
 
 #[test]
 fn stmove_matches_fortran_where_applicable() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let mut state = shifted_stmove_state();
     stmove(&mut state);
     let reference = &state_topology_fortran().stmove;

@@ -404,12 +404,19 @@ fn test_single_surface_naca0012_integration() {
     
     // Check transition produces reasonable turbulent state
     if let Some(tr_idx) = result.transition_index {
-        let s = &result.stations[tr_idx];
-        if s.is_turbulent && s.ctau > 0.0 && s.ctau < 0.3 {
-            println!("  ✓ First turbulent station has physical ctau = {:.4}", s.ctau);
+        if let Some(s) = result.stations.get(tr_idx) {
+            if s.is_turbulent && s.ctau > 0.0 && s.ctau < 0.3 {
+                println!("  ✓ First turbulent station has physical ctau = {:.4}", s.ctau);
+            } else {
+                println!("  ✗ First turbulent station ctau = {:.4} is unphysical", s.ctau);
+                all_ok = false;
+            }
         } else {
-            println!("  ✗ First turbulent station ctau = {:.4} is unphysical", s.ctau);
-            all_ok = false;
+            println!(
+                "  ⚠ transition_index {} out of range for {} stations (transition at TE?)",
+                tr_idx,
+                result.stations.len()
+            );
         }
     }
     

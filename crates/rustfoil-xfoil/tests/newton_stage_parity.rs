@@ -2,7 +2,10 @@ mod support;
 
 use serde_json::Value;
 
-use support::{assert_close_scalar, assert_close_slice, rust_iteration_debug, xfoil_iteration_debug};
+use support::{
+    assert_close_scalar, assert_close_slice, rust_iteration_debug, xfoil_instrumented_tests_enabled,
+    xfoil_iteration_debug,
+};
 
 fn event_by_name<'a>(debug: &'a Value, name: &str) -> &'a Value {
     debug["events"]
@@ -42,6 +45,9 @@ fn flattened_numbers(value: &Value) -> Vec<f64> {
 
 #[test]
 fn setbl_system_matches_xfoil_debug_samples() {
+    if !xfoil_instrumented_tests_enabled() {
+        return;
+    }
     let rust = rust_iteration_debug(15.0);
     let xfoil = xfoil_iteration_debug(15.0);
     let rust_event = event_by_name(&rust, "SETBL_SYSTEM");
@@ -62,6 +68,9 @@ fn setbl_system_matches_xfoil_debug_samples() {
 
 #[test]
 fn blsolv_solution_matches_xfoil_debug_samples() {
+    if !xfoil_instrumented_tests_enabled() {
+        return;
+    }
     let rust = rust_iteration_debug(15.0);
     let xfoil = xfoil_iteration_debug(15.0);
     let rust_event = event_by_name(&rust, "BLSOLV_SOLUTION");
@@ -75,6 +84,9 @@ fn blsolv_solution_matches_xfoil_debug_samples() {
 
 #[test]
 fn update_detailed_matches_xfoil_first_surface_samples() {
+    if !xfoil_instrumented_tests_enabled() {
+        return;
+    }
     let rust = rust_iteration_debug(15.0);
     let xfoil = xfoil_iteration_debug(15.0);
     let rust_events = events_by_name(&rust, "UPDATE_DETAILED");

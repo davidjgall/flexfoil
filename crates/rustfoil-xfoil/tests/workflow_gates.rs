@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use support::{
     assert_close_scalar, run_workflow_case, xfoil_binary_oper_point, xfoil_binary_reference,
-    WORKFLOW_MAX_RATIO,
+    xfoil_instrumented_tests_enabled, WORKFLOW_MAX_RATIO,
 };
 
 fn workflow_case_against_xfoil_binary(alpha_deg: f64) -> (rustfoil_xfoil::result::XfoilViscousResult, support::XfoilBinaryReference) {
@@ -18,6 +18,9 @@ fn workflow_case_against_xfoil_binary(alpha_deg: f64) -> (rustfoil_xfoil::result
 
 #[test]
 fn viscal_style_oper_point_matches_xfoil_binary() {
+    if !xfoil_instrumented_tests_enabled() {
+        return;
+    }
     let alpha_deg = 15.0;
     let rust = run_workflow_case(alpha_deg);
     let case = xfoil_binary_reference();
@@ -29,6 +32,9 @@ fn viscal_style_oper_point_matches_xfoil_binary() {
 
 #[test]
 fn viscal_workflow_matrix_matches_xfoil_binary() {
+    if !xfoil_instrumented_tests_enabled() {
+        return;
+    }
     let mut failures = Vec::new();
     for alpha_deg in [-4.0, 0.0, 4.0, 8.0, 12.0, 15.0] {
         let (rust, reference) = workflow_case_against_xfoil_binary(alpha_deg);

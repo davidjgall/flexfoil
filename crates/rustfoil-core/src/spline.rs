@@ -1194,7 +1194,7 @@ mod comparison_tests {
     #[test]
     fn test_exact_xfoil_match() {
         // Load actual XFOIL output and compare
-        let xfoil_dat = include_str!("../../../naca0012_xfoil_paneled.dat");
+        let xfoil_dat = include_str!("../../../testdata/naca0012_xfoil_paneled.dat");
         let xfoil_coords = load_xfoil_dat(xfoil_dat);
         
         println!("\nLoaded {} points from XFOIL .dat file", xfoil_coords.len());
@@ -1235,7 +1235,7 @@ mod comparison_tests {
     #[test]
     fn test_point_by_point_comparison() {
         // Load actual XFOIL output
-        let xfoil_dat = include_str!("../../../naca0012_xfoil_paneled.dat");
+        let xfoil_dat = include_str!("../../../testdata/naca0012_xfoil_paneled.dat");
         let xfoil_coords = load_xfoil_dat(xfoil_dat);
         
         // IMPORTANT: XFOIL loads the NACA coordinates, then repanels them.
@@ -1320,11 +1320,11 @@ mod comparison_tests {
     #[test]
     fn test_with_xfoil_buffer_input() {
         // Load XFOIL's buffer coordinates (the input to PANGEN)
-        let xfoil_buffer = include_str!("../../../naca0012_buffer_real.dat");
+        let xfoil_buffer = include_str!("../../../testdata/naca0012_buffer_real.dat");
         let buffer_coords = load_xfoil_dat(xfoil_buffer);
         
         // Load XFOIL's paneled output
-        let xfoil_dat = include_str!("../../../naca0012_xfoil_paneled.dat");
+        let xfoil_dat = include_str!("../../../testdata/naca0012_xfoil_paneled.dat");
         let xfoil_coords = load_xfoil_dat(xfoil_dat);
         
         println!("\nUsing XFOIL's actual buffer as input:");

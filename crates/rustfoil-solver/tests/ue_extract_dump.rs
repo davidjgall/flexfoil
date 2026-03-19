@@ -50,7 +50,7 @@ fn load_xfoil_dat(filename: &str) -> Vec<(f64, f64)> {
 
 #[test]
 fn dump_extracted_surface_ue() {
-    let coords = load_xfoil_dat("naca0012_xfoil_paneled.dat");
+    let coords = load_xfoil_dat("testdata/naca0012_xfoil_paneled.dat");
     let alpha_deg = 4.0;
     let setup_result = setup_from_coords(&coords, alpha_deg)
         .expect("setup_from_coords failed");
