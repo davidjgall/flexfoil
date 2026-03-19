@@ -226,6 +226,9 @@ export function DataExplorerPanel() {
   const [sizeBy, setSizeBy] = useState<keyof RunRow | ''>('');
   const [symbolBy, setSymbolBy] = useState<keyof RunRow | ''>('');
 
+  const smartGroupActive = useRouteUiStore((state) => state.dataExplorerSmartGroup);
+  const setSmartGroupActive = useRouteUiStore((state) => state.setDataExplorerSmartGroup);
+
   // ── AG Grid refs & config ──
   const gridRef = useRef<AgGridReact<RunRow>>(null);
   const apiRef = useRef<GridApi<RunRow> | null>(null);
@@ -340,9 +343,6 @@ export function DataExplorerPanel() {
 
   const outlierFilter = useRouteUiStore((state) => state.outlierFilterEnabled);
   const setOutlierFilter = useRouteUiStore((state) => state.setOutlierFilterEnabled);
-
-  const smartGroupActive = useRouteUiStore((state) => state.dataExplorerSmartGroup);
-  const setSmartGroupActive = useRouteUiStore((state) => state.setDataExplorerSmartGroup);
 
   const applySmartGroup = useCallback(() => {
     const api = apiRef.current;
