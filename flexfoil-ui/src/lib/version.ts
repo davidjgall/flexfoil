@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.1.1',
+    date: '2026-03-19',
+    items: [
+      { category: 'fixed', text: 'File menu actions (New NACA, Import .dat, Export .dat, Export SVG) were disabled and not connected to anything' },
+      { category: 'added', text: 'Export airfoil geometry as .dat (standard Selig format) or SVG from the File menu' },
+    ],
+  },
+  {
     version: '1.1.0-dev',
     date: '2026-03-18',
     items: [
