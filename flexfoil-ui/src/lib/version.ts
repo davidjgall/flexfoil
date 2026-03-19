@@ -22,7 +22,7 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: '1.1.1-dev',
+    version: '1.1.1',
     date: '2026-03-19',
     items: [
       { category: 'fixed', text: 'File menu actions (New NACA, Import .dat, Export .dat, Export SVG) were disabled and not connected to anything' },
