@@ -217,7 +217,8 @@ export function DataExplorerPanel() {
   const setColorBy = useRouteUiStore((state) => state.setDataExplorerColorBy);
   const filterModel = useRouteUiStore((state) => state.dataExplorerFilterModel);
   const setFilterModel = useRouteUiStore((state) => state.setDataExplorerFilterModel);
-  const [dataSource, setDataSource] = useState<DataSource>('full');
+  const dataSource = useRouteUiStore((state) => state.dataExplorerDataSource);
+  const setDataSource = useRouteUiStore((state) => state.setDataExplorerDataSource);
   const [showColumnEditor, setShowColumnEditor] = useState(false);
   const customColumns = useCustomColumnStore((s) => s.columns);
   const { numericFields: mergedNumericFields, encodingFields: mergedEncodingFields, getFieldLabel: mergedGetLabel, getFieldValue } = useAllPlotFields();
@@ -265,7 +266,11 @@ export function DataExplorerPanel() {
     if (filterModel) {
       e.api.setFilterModel(filterModel as GridFilterModel);
     }
-  }, [filterModel]);
+    if (smartGroupActive) {
+      e.api.setRowGroupColumns(['airfoil_name', 'reynolds', 'mach', 'ncrit', 'flap_deflection', 'flap_hinge_x']);
+      e.api.setColumnsVisible(['alpha_stall', 'alpha_ldmax'], true);
+    }
+  }, [filterModel, smartGroupActive]);
   const onFilterChanged = useCallback((e: FilterChangedEvent<RunRow>) => {
     const filtered: RunRow[] = [];
     e.api.forEachNodeAfterFilterAndSort(node => { if (node.data) filtered.push(node.data); });
@@ -336,7 +341,8 @@ export function DataExplorerPanel() {
   const outlierFilter = useRouteUiStore((state) => state.outlierFilterEnabled);
   const setOutlierFilter = useRouteUiStore((state) => state.setOutlierFilterEnabled);
 
-  const [smartGroupActive, setSmartGroupActive] = useState(false);
+  const smartGroupActive = useRouteUiStore((state) => state.dataExplorerSmartGroup);
+  const setSmartGroupActive = useRouteUiStore((state) => state.setDataExplorerSmartGroup);
 
   const applySmartGroup = useCallback(() => {
     const api = apiRef.current;
@@ -344,7 +350,8 @@ export function DataExplorerPanel() {
     api.setRowGroupColumns(['airfoil_name', 'reynolds', 'mach', 'ncrit', 'flap_deflection', 'flap_hinge_x']);
     api.setColumnsVisible(['alpha_stall', 'alpha_ldmax'], true);
     setSmartGroupActive(true);
-  }, []);
+    setDataSource('aggregated');
+  }, [setSmartGroupActive, setDataSource]);
 
   const clearGroups = useCallback(() => {
     const api = apiRef.current;
@@ -352,7 +359,8 @@ export function DataExplorerPanel() {
     api.setRowGroupColumns([]);
     api.setColumnsVisible(['alpha_stall', 'alpha_ldmax'], false);
     setSmartGroupActive(false);
-  }, []);
+    if (dataSource === 'aggregated') setDataSource('full');
+  }, [dataSource, setSmartGroupActive, setDataSource]);
 
   // ── Correlogram ──
   const data = dataSource === 'aggregated' ? aggregatedRuns

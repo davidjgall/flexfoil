@@ -45,6 +45,8 @@ export interface RouteUiSnapshot {
   dataExplorerSplomKeys: (keyof RunRow)[];
   dataExplorerColorBy: keyof RunRow | '';
   dataExplorerFilterModel: unknown | null;
+  dataExplorerSmartGroup: boolean;
+  dataExplorerDataSource: DataSource;
   outlierFilterEnabled: boolean;
   activePanel: PanelId;
   layoutJson: IJsonModel | null;
@@ -81,6 +83,8 @@ interface RouteUiStore extends RouteUiSnapshot {
   setDataExplorerSplomKeys: (value: (keyof RunRow)[]) => void;
   setDataExplorerColorBy: (value: keyof RunRow | '') => void;
   setDataExplorerFilterModel: (value: unknown | null) => void;
+  setDataExplorerSmartGroup: (value: boolean) => void;
+  setDataExplorerDataSource: (value: DataSource) => void;
   setOutlierFilterEnabled: (value: boolean) => void;
   setViewport: (value: RouteViewportState) => void;
   applyRouteViewport: (value: Partial<RouteViewportState>) => void;
@@ -116,6 +120,8 @@ export const DEFAULT_ROUTE_UI_STATE: RouteUiSnapshot = {
   dataExplorerSplomKeys: ['alpha', 'cl', 'cd', 'cm'],
   dataExplorerColorBy: '',
   dataExplorerFilterModel: null,
+  dataExplorerSmartGroup: false,
+  dataExplorerDataSource: 'full',
   outlierFilterEnabled: false,
   activePanel: 'canvas',
   layoutJson: null,
@@ -159,6 +165,8 @@ export const useRouteUiStore = create<RouteUiStore>((set) => ({
   setDataExplorerSplomKeys: (dataExplorerSplomKeys) => set({ dataExplorerSplomKeys }),
   setDataExplorerColorBy: (dataExplorerColorBy) => set({ dataExplorerColorBy }),
   setDataExplorerFilterModel: (dataExplorerFilterModel) => set({ dataExplorerFilterModel }),
+  setDataExplorerSmartGroup: (dataExplorerSmartGroup) => set({ dataExplorerSmartGroup }),
+  setDataExplorerDataSource: (dataExplorerDataSource) => set({ dataExplorerDataSource }),
   setOutlierFilterEnabled: (outlierFilterEnabled) => set({ outlierFilterEnabled }),
   setViewport: (viewport) => set({ viewport }),
   applyRouteViewport: (value) =>

@@ -7,12 +7,13 @@
 
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { useAirfoilStore } from '../../stores/airfoilStore';
+import { useRunStore } from '../../stores/runStore';
 import { useRouteUiStore } from '../../stores/routeUiStore';
 import { usePolarOutlierStore } from '../../stores/polarOutlierStore';
 import { colorForKey } from '../../lib/plotStyling';
 import { buildFence, isInlier } from '../../lib/outlierFilter';
 import { OutlierContextMenu } from '../OutlierContextMenu';
-import type { AxisVariable, PolarPoint } from '../../types';
+import type { AxisVariable, PolarPoint, RunRow } from '../../types';
 
 const PLOT_MARGIN = { top: 20, right: 20, bottom: 40, left: 50 };
 const HIT_RADIUS = 8;
@@ -36,6 +37,22 @@ function getValue(point: PolarPoint, variable: AxisVariable): number {
     return Math.abs(cd) > 1e-10 ? point.cl / cd : 0;
   }
   return (point as Record<string, number | undefined>)[variable] ?? 0;
+}
+
+function getRunValue(row: RunRow, axis: AxisVariable): number | null {
+  switch (axis) {
+    case 'alpha': return row.alpha;
+    case 'cl': return row.cl;
+    case 'cd': return row.cd;
+    case 'cm': return row.cm;
+    case 'ld': return row.ld;
+    case 'reynolds': return row.reynolds;
+    case 'mach': return row.mach;
+    case 'ncrit': return row.ncrit;
+    case 'flapDeflection': return row.flap_deflection;
+    case 'flapHingeX': return row.flap_hinge_x;
+    default: return null;
+  }
 }
 
 function getAxisBounds(values: number[]): [number, number] {
@@ -78,6 +95,7 @@ interface DisplaySeries {
 
 export function PolarPanel() {
   const { polarData, removePolar, clearAllPolars } = useAirfoilStore();
+  const aggregatedRuns = useRunStore((s) => s.aggregatedRuns);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -88,6 +106,7 @@ export function PolarPanel() {
   const outlierFilter = useRouteUiStore((state) => state.outlierFilterEnabled);
   const setOutlierFilter = useRouteUiStore((state) => state.setOutlierFilterEnabled);
   const [canvasSize, setCanvasSize] = useState({ width: 400, height: 300 });
+  const [showAggregated, setShowAggregated] = useState(false);
 
   const outlierRevision = usePolarOutlierStore((s) => s.revision);
   const toggleFlag = usePolarOutlierStore((s) => s.toggleFlag);
@@ -141,6 +160,18 @@ export function PolarPanel() {
   );
   const removedCount = rawTotalPoints - totalVisible;
 
+  const aggOverlayPoints = useMemo(() => {
+    if (!showAggregated || aggregatedRuns.length === 0) return [];
+    return aggregatedRuns
+      .map((row) => {
+        const x = getRunValue(row, xAxis);
+        const y = getRunValue(row, yAxis);
+        if (x == null || y == null) return null;
+        return { x, y, label: row.airfoil_name };
+      })
+      .filter((p): p is { x: number; y: number; label: string } => p !== null);
+  }, [showAggregated, aggregatedRuns, xAxis, yAxis]);
+
   const { xBounds, yBounds } = useMemo(() => {
     const allX: number[] = [];
     const allY: number[] = [];
@@ -150,11 +181,15 @@ export function PolarPanel() {
         allY.push(getValue(ap.point, yAxis));
       }
     }
+    for (const pt of aggOverlayPoints) {
+      allX.push(pt.x);
+      allY.push(pt.y);
+    }
     return {
       xBounds: getAxisBounds(allX),
       yBounds: getAxisBounds(allY),
     };
-  }, [displayData, xAxis, yAxis]);
+  }, [displayData, xAxis, yAxis, aggOverlayPoints]);
 
   const makeToCanvasX = useCallback(
     (width: number) => {
@@ -256,6 +291,7 @@ export function PolarPanel() {
     ctx.restore();
     
     // Draw each series
+    const hasContent = totalVisible > 0 || aggOverlayPoints.length > 0;
     if (totalVisible > 0) {
       displayData.forEach((series) => {
         const color = colorForKey(series.key);
@@ -285,7 +321,6 @@ export function PolarPanel() {
           const cy = toCanvasY(getValue(ap.point, yAxis));
 
           if (ap.isFlagged) {
-            // Red X mark for manually flagged points
             const s = 4;
             ctx.strokeStyle = '#ef4444';
             ctx.lineWidth = 2;
@@ -303,7 +338,31 @@ export function PolarPanel() {
           }
         }
       });
-    } else {
+    }
+
+    // Draw aggregated overlay as diamond markers
+    if (aggOverlayPoints.length > 0) {
+      const accentColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--accent-secondary').trim() || '#f59e0b';
+      const s = 6;
+      for (const pt of aggOverlayPoints) {
+        const cx = toCanvasX(pt.x);
+        const cy = toCanvasY(pt.y);
+        ctx.fillStyle = accentColor;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - s);
+        ctx.lineTo(cx + s, cy);
+        ctx.lineTo(cx, cy + s);
+        ctx.lineTo(cx - s, cy);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    if (!hasContent) {
       ctx.fillStyle = getComputedStyle(document.documentElement)
         .getPropertyValue('--text-secondary').trim() || '#888888';
       ctx.font = '14px sans-serif';
@@ -311,7 +370,7 @@ export function PolarPanel() {
       ctx.textBaseline = 'middle';
       ctx.fillText('No polar data. Run a polar sweep in the Solve panel.', width / 2, height / 2);
     }
-  }, [canvasSize, displayData, totalVisible, xAxis, yAxis, xBounds, yBounds, makeToCanvasX, makeToCanvasY]);
+  }, [canvasSize, displayData, totalVisible, xAxis, yAxis, xBounds, yBounds, makeToCanvasX, makeToCanvasY, aggOverlayPoints]);
 
   // Canvas hit-testing for right-click context menu
   const handleContextMenu = useCallback(
@@ -426,6 +485,22 @@ export function PolarPanel() {
           />
           Remove Outliers
         </label>
+
+        {aggregatedRuns.length > 0 && (
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px',
+            color: showAggregated ? 'var(--accent-secondary, #f59e0b)' : 'var(--text-secondary)',
+            cursor: 'pointer', userSelect: 'none',
+          }}>
+            <input
+              type="checkbox"
+              checked={showAggregated}
+              onChange={(e) => setShowAggregated(e.target.checked)}
+              style={{ margin: 0, accentColor: 'var(--accent-secondary, #f59e0b)' }}
+            />
+            Aggregated ({aggregatedRuns.length})
+          </label>
+        )}
         
         <span style={{ 
           marginLeft: 'auto', 

@@ -37,6 +37,11 @@ export const CHANGELOG: ChangelogEntry[] = [
       { category: 'added', text: 'Python API: PolarResult now exposes cl_max, alpha_stall, ld_max, cd_min, and generic argmax/argmin/column_mean/column_median' },
       { category: 'added', text: 'Selig airfoil database browser with ~1,600 airfoils from the UIUC database — search and load any airfoil' },
       { category: 'added', text: 'Random Foil button to load a surprise airfoil from the Selig database' },
+      { category: 'added', text: 'Smart Group button in Data Explorer — one click groups by polar configuration (airfoil + Re + Mach + Ncrit + flap) to see CL_max, L/D_max, α_stall per group' },
+      { category: 'added', text: 'Aggregated data source in Data Explorer correlogram and Polar Plot overlay — plot group-level statistics across all plotting surfaces' },
+      { category: 'added', text: '"Show Me" interactive tutorials in the What\'s New dialog — guided walkthroughs for new features powered by the tour system' },
+      { category: 'fixed', text: 'Data Explorer crashed with toFixed error when grouping by airfoil or other non-numeric columns' },
+      { category: 'changed', text: 'Smart Group and correlogram data source now persist across view switches and page reloads' },
     ],
   },
   {
