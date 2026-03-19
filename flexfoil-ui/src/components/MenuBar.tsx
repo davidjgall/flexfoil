@@ -52,7 +52,7 @@ export function MenuBar({
   // Airfoil state for file operations
   const airfoilName = useAirfoilStore((s) => s.name);
   const coordinates = useAirfoilStore((s) => s.coordinates);
-  const panels = useAirfoilStore((s) => s.panels);
+  const airfoilPanels = useAirfoilStore((s) => s.panels);
   const importAirfoil = useAirfoilStore((s) => s.importAirfoil);
   
   // Onboarding
@@ -143,7 +143,7 @@ export function MenuBar({
   );
 
   const handleExportDat = () => {
-    const coords = panels.length > 0 ? panels : coordinates;
+    const coords = airfoilPanels.length > 0 ? airfoilPanels : coordinates;
     if (coords.length === 0) return;
 
     const lines = [airfoilName];
@@ -161,7 +161,7 @@ export function MenuBar({
   };
 
   const handleExportSvg = () => {
-    const coords = panels.length > 0 ? panels : coordinates;
+    const coords = airfoilPanels.length > 0 ? airfoilPanels : coordinates;
     if (coords.length === 0) return;
 
     const xs = coords.map((p) => p.x);
