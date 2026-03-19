@@ -182,14 +182,13 @@ fn load_naca0012_coords() -> Option<Vec<(f64, f64)>> {
     let path = if coord_path.exists() {
         coord_path
     } else {
-        // Fallback paths
-        let fallback_paths = [
-            Path::new("testdata/naca0012.dat"),
-            Path::new("../../testdata/naca0012.dat"),
-        ];
-        fallback_paths.iter()
-            .find(|p| p.exists())
-            .map(|p| p.to_path_buf())?
+        // Repo-tracked fallbacks (must be paths under workspace root)
+        [
+            workspace_root.join("testdata/naca0012_xfoil_paneled.dat"),
+            workspace_root.join("testdata/naca0012.dat"),
+        ]
+        .into_iter()
+        .find(|p| p.exists())?
     };
     
     let content = std::fs::read_to_string(&path).ok()?;
@@ -213,6 +212,19 @@ fn load_naca0012_coords() -> Option<Vec<(f64, f64)>> {
     } else {
         None
     }
+}
+
+/// Stagnation index in `viscous_ref.json` is tied to the instrumented XFOIL paneled mesh.
+fn xfoil_instrumented_naca0012_mesh_available() -> bool {
+    let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") else {
+        return false;
+    };
+    let Some(workspace_root) = Path::new(&manifest_dir).parent().and_then(Path::parent) else {
+        return false;
+    };
+    workspace_root
+        .join("Xfoil-instrumented/bin/naca0012_xfoil.dat")
+        .exists()
 }
 
 /// Generate NACA 4-digit airfoil coordinates.
@@ -397,6 +409,13 @@ fn test_stagnation_point_matches() {
         return;
     }
     let ref_data = ref_data.unwrap();
+
+    if !xfoil_instrumented_naca0012_mesh_available() {
+        eprintln!(
+            "[SKIP] test_stagnation_point_matches needs Xfoil-instrumented/bin/naca0012_xfoil.dat (IST vs reference polar)"
+        );
+        return;
+    }
     
     let coords = load_naca0012_coords();
     if coords.is_none() {

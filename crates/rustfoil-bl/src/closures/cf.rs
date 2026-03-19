@@ -362,7 +362,8 @@ mod tests {
         assert!(result.cf.is_finite());
         assert!(result.cf_hk.is_finite());
 
-        // When clamped, cf_rt should be 0
-        assert_eq!(result.cf_rt, 0.0, "cf_rt should be 0 when GRT is clamped");
+        // XFOIL-style: derivatives use the *clamped* GRT in the formula; cf_rt is not forced to 0.
+        assert!(result.cf_rt.is_finite());
+        assert_ne!(result.cf_rt, 0.0, "cf_rt should reflect clamped-GRT chain rule");
     }
 }

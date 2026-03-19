@@ -1,10 +1,16 @@
-use rustfoil_inviscid::{InviscidSolver, FlowConditions};
+use rustfoil_inviscid::{FlowConditions, InviscidSolver};
 use std::f64::consts::PI;
+use std::path::PathBuf;
 
 #[test]
 fn test_cl_slope() {
-    let content = std::fs::read_to_string("../../Xfoil-instrumented/bin/naca0012_xfoil.dat")
-        .expect("Failed to read file");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("testdata")
+        .join("naca0012_xfoil_paneled.dat");
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Failed to read {:?}: {}", path, e));
     
     let coords: Vec<(f64, f64)> = content
         .lines()

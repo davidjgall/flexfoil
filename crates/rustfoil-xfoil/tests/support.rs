@@ -7,6 +7,7 @@ use rustfoil_testkit::fortran_runner::{
     compile_driver, run_fortran_json, run_fortran_json_with_args, run_fortran_test,
     run_xfoil_instrumented, FortranDriverSpec, XFOIL_STATE_OBJS, XFOIL_WORKFLOW_OBJS,
 };
+use rustfoil_testkit::paths::{xfoil_instrumented_available, xfoil_instrumented_executable};
 use rustfoil_xfoil::{
     assembly::setbl,
     config::{OperatingMode, XfoilOptions},
@@ -14,7 +15,7 @@ use rustfoil_xfoil::{
     oper::{solve_coords_oper_point, AlphaSpec},
     solve::blsolv,
     state::XfoilState,
-    state_ops::{compute_arc_lengths, iblpan, specal, stfind, uedginit, uicalc, xicalc},
+    state_ops::{compute_arc_lengths, gamqv, iblpan, qvfue, specal, stfind, uedginit, uicalc, xicalc},
     update::update,
     wake_panel::{qdcalc, qwcalc, xywake},
 };
@@ -22,6 +23,30 @@ use serde::Deserialize;
 
 pub const MICROBENCH_MAX_RATIO: f64 = 1.15;
 pub const WORKFLOW_MAX_RATIO: f64 = 1.30;
+
+/// Parity tests that shell out to `xfoil_instrumented` should call this and return early when false.
+pub fn xfoil_instrumented_tests_enabled() -> bool {
+    if xfoil_instrumented_available() {
+        return true;
+    }
+    eprintln!(
+        "skip: xfoil_instrumented not found at {} (build Xfoil-instrumented or set RUSTFOIL_XFOIL_INSTRUMENTED_BIN)",
+        xfoil_instrumented_executable().display()
+    );
+    false
+}
+
+/// Fortran drivers link against object files under `Xfoil-instrumented/bin`.
+pub fn xfoil_fortran_object_tests_enabled() -> bool {
+    if rustfoil_testkit::paths::xfoil_instrumented_bin_dir_ready() {
+        return true;
+    }
+    eprintln!(
+        "skip: XFOIL instrumented bin directory missing at {} (clone/build Xfoil-instrumented or set RUSTFOIL_XFOIL_INSTRUMENTED_BIN)",
+        rustfoil_testkit::paths::xfoil_instrumented_bin().display()
+    );
+    false
+}
 
 #[derive(Debug, Deserialize)]
 pub struct FortranPerfCase {
@@ -296,6 +321,7 @@ pub fn xfoil_iteration_debug(alpha_deg: f64) -> serde_json::Value {
     let source_coords_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
+        .join("testdata")
         .join("naca0012_xfoil_paneled.dat");
     let workdir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -362,7 +388,7 @@ pub fn rust_iteration_debug(alpha_deg: f64) -> serde_json::Value {
     let assembly = setbl(&mut state, 1.0e6, 9.0, 0.0, 1);
     let mut assembly = assembly;
     let solve = blsolv(&mut state, &mut assembly, 1);
-    update(&mut state, &assembly, &solve, 0.0, 1.0e6);
+    update(&mut state, &assembly, &solve, 0.0, 1.0e6, 1);
     finalize_debug();
 
     let debug_text = std::fs::read_to_string(&debug_path).expect("read rust debug JSON");
@@ -436,6 +462,9 @@ pub fn prepare_state_topology_state() -> XfoilState {
 pub fn shifted_stmove_state() -> XfoilState {
     let mut state = prepare_state_topology_state();
     state.gam = vec![0.72, 0.28, -0.05, -0.25, -0.40, -0.20];
+    // Keep `qvis` / `gam` / `gam_a` consistent after overriding circulation (matches post-`qvfue` view).
+    qvfue(&mut state);
+    gamqv(&mut state);
     state
 }
 
@@ -529,6 +558,7 @@ pub fn build_march_state(alpha_deg: f64) -> (XfoilState, rustfoil_inviscid::Fact
     let paneled_coords_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
+        .join("testdata")
         .join("naca0012_xfoil_paneled.dat");
     let coords = load_dat_coords(&paneled_coords_path);
     let solver = rustfoil_inviscid::InviscidSolver::new();
@@ -584,7 +614,7 @@ pub fn rust_setbl_state(alpha_deg: f64) -> FortranMarchState {
 pub fn rust_mrchue_state(alpha_deg: f64) -> FortranMarchState {
     let (mut state, _) = build_march_state(alpha_deg);
     blpini(&mut state, 1.0e6);
-    mrchue(&mut state, 1.0e6, 9.0);
+    mrchue(&mut state, 1.0e6, 9.0, 0);
     march_state_snapshot(&state)
 }
 
@@ -793,10 +823,18 @@ fn load_dat_coords(path: &std::path::Path) -> Vec<(f64, f64)> {
 }
 
 fn build_xfoil_binary_reference(alpha_deg: f64) -> XfoilBinaryReference {
-    let source_coords_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join("..")
-        .join("naca0012.dat");
+        .join("..");
+    let root_dat = workspace_root.join("naca0012.dat");
+    let fixture_dat = workspace_root
+        .join("testdata")
+        .join("naca0012_xfoil_paneled.dat");
+    let source_coords_path = if root_dat.exists() {
+        root_dat
+    } else {
+        fixture_dat
+    };
     let workdir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")

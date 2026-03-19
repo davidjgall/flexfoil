@@ -5,11 +5,14 @@ use rustfoil_xfoil::march::{blpini, mrchdu, mrchue};
 
 use support::{
     assert_close_slice, build_march_state, march_fortran, rust_mrchue_state, rust_setbl_state,
-    xfoil_debug_mrchue_state,
+    xfoil_debug_mrchue_state, xfoil_fortran_object_tests_enabled, xfoil_instrumented_tests_enabled,
 };
 
 #[test]
 fn mrchue_matches_xfoil_debug_trace() {
+    if !xfoil_instrumented_tests_enabled() {
+        return;
+    }
     let reference = xfoil_debug_mrchue_state(15.0);
     let actual = rust_mrchue_state(15.0);
     assert_eq!(actual.nbl_upper, reference.nbl_upper, "mrchue.nbl_upper");
@@ -36,6 +39,9 @@ fn mrchue_matches_xfoil_debug_trace() {
 #[test]
 #[ignore = "diagnostic for remaining wake-x drift"]
 fn dump_mrchue_lower_wake_x_drift() {
+    if !xfoil_instrumented_tests_enabled() {
+        return;
+    }
     let reference = xfoil_debug_mrchue_state(15.0);
     let actual = rust_mrchue_state(15.0);
     let (state, _) = build_march_state(15.0);
@@ -71,6 +77,9 @@ fn dump_mrchue_lower_wake_x_drift() {
 #[test]
 #[ignore = "Fortran SETBL driver still crashes before emitting the stage snapshot"]
 fn setbl_matches_fortran_stage_trace() {
+    if !xfoil_fortran_object_tests_enabled() {
+        return;
+    }
     let reference = &march_fortran().setbl;
     let actual = rust_setbl_state(4.0);
     assert_eq!(actual.nbl_upper, reference.nbl_upper, "setbl.nbl_upper");
@@ -111,8 +120,8 @@ fn perf_marching_path_smoke() {
         || {
             state.clone_from(&base);
             blpini(&mut state, 1.0e6);
-            mrchue(&mut state, 1.0e6, 9.0);
-            mrchdu(&mut state, 1.0e6, 9.0);
+            mrchue(&mut state, 1.0e6, 9.0, 0);
+            mrchdu(&mut state, 1.0e6, 9.0, 0);
         },
     );
 

@@ -48,3 +48,18 @@ pub fn xfoil_instrumented_bin() -> PathBuf {
     env_path("RUSTFOIL_XFOIL_INSTRUMENTED_BIN")
         .unwrap_or_else(|| xfoil_instrumented_root().join("bin"))
 }
+
+/// Path to the instrumented XFOIL executable used by parity tests.
+pub fn xfoil_instrumented_executable() -> PathBuf {
+    xfoil_instrumented_bin().join("xfoil_instrumented")
+}
+
+/// `true` when the instrumented XFOIL binary is on disk (default CI checkouts often omit it).
+pub fn xfoil_instrumented_available() -> bool {
+    xfoil_instrumented_executable().exists()
+}
+
+/// `true` when the instrumented build tree exists (`.o` objects for Fortran driver tests).
+pub fn xfoil_instrumented_bin_dir_ready() -> bool {
+    xfoil_instrumented_bin().is_dir()
+}
