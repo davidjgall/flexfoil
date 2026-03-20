@@ -1298,8 +1298,14 @@ def naca_points(M, digits):
         # 4-digit series
         m, p = float(digits[0])*.01, float(digits[1])*.1
         c = m/(1-p)**2 * ((1-2.*p)+2.*p*x-x**2)
+        
+        dc_dx = 2./(1-p)**2*(p*m-m*x)
+        
         for i in range(len(x)): 
             if x[i] < p: c[i] = m/p**2*(2*p*x[i]-x[i]**2)
+                
+                dc_dx = 2.*(m/p-m*x/p**2) # DJG 3/20/26
+    
     elif (len(digits)==5):
         # 5-digit series
         n = float(digits[1])
@@ -1313,8 +1319,15 @@ def naca_points(M, digits):
     else:
         raise ValueError('Provide 4 or 5 NACA digits')
     
-    zu = c + t; zl = c - t  # upper and lower surfaces
-    xs = np.concatenate((np.flip(x), x[1:])) # x points
+    # zu = c + t; zl = c - t  # upper and lower surfaces # DJG 3/20/26
+
+    zu = c + t*cos(atan(dc_dx)); zl = c - t*cos(atan(dc_dx))  # upper and lower surfaces # DJG 3/20/26
+    xu = x - t*sin(atan(dc_dx)); zl = c + t*sin(atan(dc_dx))  # upper and lower surfaces # DJG 3/20/26
+
+    # xs = np.concatenate((np.flip(x), x[1:])) # x points # DJG 3/20/26
+    
+    xs = np.concatenate((np.flip(xl), xu[1:])) # x points # DJG 3/20/26
+    
     zs = np.concatenate((np.flip(zl), zu[1:])) # z points
 
     # store points in M
