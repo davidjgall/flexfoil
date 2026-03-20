@@ -49,8 +49,12 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
   const challengeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentChallengeRef = useRef<Challenge | null>(null);
   
-  // Get layout context for panel focusing
+  // Get layout context for panel focusing.
+  // Ref avoids re-subscribing the capture-phase click listener (which must
+  // stay registered before driver.js's own listener to win the race).
   const { openPanel } = useLayout();
+  const openPanelRef = useRef(openPanel);
+  openPanelRef.current = openPanel;
 
   // Clean up challenge polling
   const clearChallengePolling = useCallback(() => {
@@ -310,7 +314,9 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
   }, [clearChallengePolling, buildChallengeHTML, openPanel]);
 
   // Delegated click handler for "Show Panel" buttons injected into tour popovers.
-  // Active only while a tour is running so it doesn't interfere otherwise.
+  // MUST register before driver.js's own capture-phase handler (which calls
+  // stopImmediatePropagation on all popover clicks). We use a ref for openPanel
+  // so this effect only re-runs on isActive change, keeping our listener first.
   useEffect(() => {
     if (!isActive) return;
 
@@ -318,17 +324,18 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-open-panel]');
       if (!btn) return;
       e.stopPropagation();
+      e.stopImmediatePropagation();
+      e.preventDefault();
       const panelId = btn.dataset.openPanel;
       if (panelId) {
-        openPanel(panelId);
-        // After opening, give layout a moment to settle then refresh the highlight
+        openPanelRef.current(panelId);
         setTimeout(() => driverRef.current?.refresh(), 150);
       }
     };
 
     document.addEventListener('click', handleShowPanel, true);
     return () => document.removeEventListener('click', handleShowPanel, true);
-  }, [isActive, openPanel]);
+  }, [isActive]);
 
   // Cleanup on unmount
   useEffect(() => {
