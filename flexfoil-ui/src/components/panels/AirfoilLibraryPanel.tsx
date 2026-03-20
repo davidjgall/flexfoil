@@ -218,7 +218,7 @@ export function AirfoilLibraryPanel() {
         </div>
 
         {/* Selig Database */}
-        <div className="form-group">
+        <div className="form-group" data-tour="library-selig">
           <div className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Selig Database</span>
             <span style={{ fontSize: '10px', color: 'var(--text-tertiary)', fontWeight: 400 }}>
@@ -288,6 +288,7 @@ export function AirfoilLibraryPanel() {
             </div>
           )}
           <button
+            data-tour="library-random-foil"
             onClick={handleRandomFoil}
             disabled={catalog.length === 0 || seligLoading !== null}
             style={{
@@ -325,7 +326,7 @@ export function AirfoilLibraryPanel() {
           }}>
             <input
               type="file"
-              accept=".dat,.txt,.csv"
+              accept=".dat,.txt,.csv,text/plain,text/*"
               onChange={handleFileImport}
               style={{ display: 'none' }}
             />
